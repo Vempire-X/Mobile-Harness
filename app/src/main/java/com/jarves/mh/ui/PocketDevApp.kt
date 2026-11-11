@@ -117,6 +117,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
@@ -294,6 +295,7 @@ import com.jarves.mh.ui.theme.PocketBlue
 import com.jarves.mh.ui.theme.PocketGradients
 import com.jarves.mh.ui.theme.PocketMono
 import com.jarves.mh.ui.theme.PocketGreen
+import com.jarves.mh.ui.theme.Dimens
 import com.jarves.mh.ui.theme.PocketOrange
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.delay
@@ -342,6 +344,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     BackupRestartEffect()
     var workspaceOverlay by rememberSaveable { mutableStateOf(WorkspaceOverlay.NONE) }
     var rootScreen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
+    var requestedWorkspaceTab by remember { mutableStateOf<WorkspaceTab?>(null) }
     // Chat-first launch: open the most recently updated project straight into its conversation
     // instead of stopping at the projects list. Runs once per process; the user returning to the
     // projects screen afterwards is not overridden.
@@ -395,6 +398,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                     onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
                     onBack = { workspaceOverlay = WorkspaceOverlay.NONE },
+                    onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
                 )
             } else {
                 AgentScreen(
@@ -521,6 +525,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         state.activeProject != null && state.workspaceVisible -> WorkspaceScreen(
             state = state,
             onBack = viewModel::closeProject,
+            requestedTab = requestedWorkspaceTab,
+            onRequestedTabHandled = { requestedWorkspaceTab = null },
             onOpenProjects = { rootScreen = RootScreen.PROJECTS; viewModel.closeProject() },
             onOpenSettings = { workspaceOverlay = WorkspaceOverlay.SETTINGS },
             onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
@@ -601,7 +607,14 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
         )
-        else -> RootScreenHost(state, viewModel, projectsListState, screen = rootScreen, onScreenChange = { rootScreen = it })
+        else -> RootScreenHost(
+            state = state,
+            viewModel = viewModel,
+            projectsListState = projectsListState,
+            screen = rootScreen,
+            onScreenChange = { rootScreen = it },
+            onRequestWorkspaceTab = { requestedWorkspaceTab = it },
+        )
     }
 }
 
@@ -2616,8 +2629,11 @@ private fun RootScreenHost(
     projectsListState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
     screen: RootScreen,
     onScreenChange: (RootScreen) -> Unit,
+    onRequestWorkspaceTab: (WorkspaceTab) -> Unit = {},
 ) {
     var showQuickTerminal by rememberSaveable { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
     var openBackup by rememberSaveable { mutableStateOf(false) }
 
     if (state.showWhatsNew) {
@@ -2636,45 +2652,63 @@ private fun RootScreenHost(
     val terminalLiveOutput by viewModel.terminalLiveOutput.collectAsStateWithLifecycle()
     val terminalCurrentCommand by viewModel.terminalCurrentCommand.collectAsStateWithLifecycle()
 
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ConversationDrawer(
+                projectName = state.activeProject?.name.orEmpty(),
+                chats = state.projectChats,
+                activeChatId = state.activeChatId,
+                switchingEnabled = !state.isRunning,
+                selected = WorkspaceTab.CHAT,
+                projects = state.projects,
+                activeProjectId = state.activeProject?.id,
+                profileName = state.githubLogin?.takeIf { it.isNotBlank() } ?: "Mobile Harness",
+                onSelectTab = { tab ->
+                    drawerScope.launch { drawerState.close() }
+                    val target = state.activeProject ?: state.projects.maxByOrNull { it.updatedAtMillis }
+                    if (target != null) {
+                        if (tab != WorkspaceTab.CHAT) onRequestWorkspaceTab(tab)
+                        viewModel.openProject(target)
+                    }
+                },
+                onOpenProjects = {
+                    drawerScope.launch { drawerState.close() }
+                    onScreenChange(RootScreen.PROJECTS)
+                },
+                onOpenSettings = {
+                    drawerScope.launch { drawerState.close() }
+                    onScreenChange(RootScreen.SETTINGS)
+                },
+                onCreateChat = {
+                    drawerScope.launch { drawerState.close() }
+                    if (state.activeProject != null) {
+                        viewModel.createChat()
+                    } else {
+                        state.projects.maxByOrNull { it.updatedAtMillis }?.let(viewModel::openProject)
+                    }
+                },
+                onSwitchChat = { chatId ->
+                    drawerScope.launch { drawerState.close() }
+                    if (state.activeProject != null) viewModel.switchChat(chatId)
+                },
+                onOpenProject = { project ->
+                    drawerScope.launch { drawerState.close() }
+                    viewModel.openProject(project)
+                },
+                onRenameProject = { id, name -> viewModel.renameProject(id, name) },
+                onDeleteProject = { id -> viewModel.deleteProject(id) },
+            )
+        },
+    ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            if (screen == RootScreen.PROJECTS && !keyboardVisible && !showQuickTerminal) {
-                Surface(
-                    onClick = { showQuickTerminal = true },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Transparent,
-                    shadowElevation = 16.dp,
-                    tonalElevation = 0.dp,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .background(PocketGradients.accent, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.Terminal,
-                            contentDescription = null,
-                            tint = Color(0xFF2A1206),
-                            modifier = Modifier.size(19.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(R.string.projects_terminal),
-                            color = Color(0xFF2A1206),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                        )
-                    }
-                }
-            }
-        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (screen) {
                 RootScreen.PROJECTS -> ProjectsScreen(
                     state = state,
+                    onOpenDrawer = { drawerScope.launch { drawerState.open() } },
                     listState = projectsListState,
                     onOpen = viewModel::openProject,
                     onCreate = viewModel::createProject,
@@ -2781,6 +2815,7 @@ private fun RootScreenHost(
                 compactHeader = true,
             )
         }
+    }
     }
 }
 
@@ -3764,17 +3799,22 @@ private fun ProjectsScreen(
     onPing: () -> Unit,
     onToggleTheme: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onOpenDrawer: () -> Unit = {},
 ) {
-    var showCreate by rememberSaveable { mutableStateOf(false) }
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
     var showGitDialog by rememberSaveable { mutableStateOf(false) }
     var showGitHubDialog by rememberSaveable { mutableStateOf(false) }
     var importExpanded by rememberSaveable { mutableStateOf(false) }
     var gitUrl by rememberSaveable { mutableStateOf("") }
     var repositorySearch by rememberSaveable { mutableStateOf("") }
-    var name by rememberSaveable { mutableStateOf("") }
-    var androidTemplate by rememberSaveable { mutableStateOf<AndroidTemplate?>(null) }
     val projects = state.projects
+    val visibleProjects = if (searchQuery.isBlank()) {
+        projects
+    } else {
+        projects.filter { it.name.contains(searchQuery.trim(), ignoreCase = true) }
+    }
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         onInstallUpdate()
@@ -3788,8 +3828,23 @@ private fun ProjectsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.padding(top = 8.dp),
-                title = { Row(verticalAlignment = Alignment.CenterVertically) { BrandMark(compact = true); Spacer(Modifier.width(9.dp)); Text("Mobile Harness", fontWeight = FontWeight.Bold) } },
+                title = {
+                    Text(
+                        text = stringResource(R.string.tab_projects),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 19.sp,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, stringResource(R.string.ws_open_menu))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { searchVisible = !searchVisible }) {
+                        Icon(Icons.Default.FilterList, stringResource(R.string.projects_search_hint))
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -3834,27 +3889,6 @@ private fun ProjectsScreen(
                             }
                             Spacer(Modifier.height(14.dp))
                             ApiStatusChip(state = state, onSettings = onSettings, onPing = onPing)
-                            Spacer(Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                PocketPrimaryButton(
-                                    text = stringResource(R.string.projects_new_project),
-                                    icon = Icons.Default.Add,
-                                    onClick = { showCreate = true },
-                                    modifier = Modifier.weight(1.2f),
-                                    height = 50.dp,
-                                )
-                                PocketSecondaryButton(
-                                    text = stringResource(R.string.projects_quick_project),
-                                    icon = Icons.Default.Chat,
-                                    onClick = onCreateQuickProject,
-                                    modifier = Modifier.weight(1f),
-                                    height = 50.dp,
-                                )
-                            }
                         }
                     }
                 }
@@ -3979,27 +4013,38 @@ private fun ProjectsScreen(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    if (projects.isNotEmpty()) {
+                    if (visibleProjects.isNotEmpty()) {
                         PocketStatusChip(
-                            text = projects.size.toString(),
+                            text = visibleProjects.size.toString(),
                             tint = MaterialTheme.colorScheme.secondary,
                             icon = Icons.Default.Folder,
                         )
                     }
                 }
             }
-            if (projects.isEmpty()) {
+            if (searchVisible) {
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.projects_search_hint), fontSize = 14.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(Dimens.iconSmall)) },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                }
+            }
+            if (visibleProjects.isEmpty()) {
                 item {
                     PocketEmptyState(
                         icon = Icons.Default.Folder,
-                        title = stringResource(R.string.projects_empty_title),
-                        description = stringResource(R.string.projects_empty_desc),
-                        actionText = stringResource(R.string.projects_new_project),
-                        onAction = { showCreate = true },
+                        title = stringResource(R.string.tab_projects),
+                        description = stringResource(R.string.projects_auto_hint),
                     )
                 }
             } else {
-                items(projects, key = { it.id }) { project ->
+                items(visibleProjects, key = { it.id }) { project ->
                     ProjectCard(
                         project = project,
                         taskRunning = state.isRunning && state.activeProject?.id == project.id,
@@ -4013,71 +4058,6 @@ private fun ProjectsScreen(
             }
         }
     }
-    if (showCreate) AlertDialog(
-        onDismissRequest = { showCreate = false },
-        title = { Text(stringResource(R.string.an_create_project)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.ws_project_name)) }, singleLine = true)
-                Text(stringResource(R.string.project_type), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(
-                        onClick = { androidTemplate = null },
-                        label = { Text(stringResource(R.string.project_type_general)) },
-                        leadingIcon = { if (androidTemplate == null) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.COMPOSE },
-                        label = { Text(stringResource(R.string.project_type_compose)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.COMPOSE) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.XML },
-                        label = { Text(stringResource(R.string.project_type_xml)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.XML) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                }
-                Text(
-                    stringResource(
-                        when (androidTemplate) {
-                            AndroidTemplate.COMPOSE -> R.string.project_type_compose_desc
-                            AndroidTemplate.XML -> R.string.project_type_xml_desc
-                            null -> R.string.project_type_general_desc
-                        },
-                    ),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (androidTemplate != null) {
-                    Text(
-                        stringResource(R.string.an_template_info, 28, 36),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (name.isNotBlank()) {
-                    Text(
-                        stringResource(R.string.ws_terminal_folder, "/workspace/${projectSlug(name)}"),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    androidTemplate?.let { onCreateAndroid(name, it) } ?: onCreate(name)
-                    showCreate = false
-                    name = ""
-                    androidTemplate = null
-                },
-                enabled = name.isNotBlank(),
-            ) { Text(stringResource(R.string.ws_create)) }
-        },
-        dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
-    )
     if (showGitDialog) AlertDialog(
         onDismissRequest = { if (!state.gitCloneRunning) showGitDialog = false },
         icon = { Icon(Icons.Default.Code, null, tint = PocketOrange) },
@@ -4573,6 +4553,8 @@ private fun ReadOnlyProjectScreen(
 private fun WorkspaceScreen(
     state: AppUiState,
     onBack: () -> Unit,
+    requestedTab: WorkspaceTab? = null,
+    onRequestedTabHandled: () -> Unit = {},
     onOpenProjects: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAgent: () -> Unit,
@@ -4797,6 +4779,14 @@ private fun WorkspaceScreen(
 
     var selectedTab by rememberSaveable { mutableStateOf(WorkspaceTab.CHAT) }
     var showAndroidBuild by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            selectedTab = requestedTab
+            if (requestedTab == WorkspaceTab.FILES) onRefreshFiles()
+            if (requestedTab == WorkspaceTab.TERMINAL) onTerminalOpened()
+            onRequestedTabHandled()
+        }
+    }
     val activeChat = state.projectChats.firstOrNull { it.id == state.activeChatId }
     val requestAndroidAction: (AndroidAction) -> Unit = { action ->
         val mayInstall = action in setOf(AndroidAction.INSTALL, AndroidAction.RUN, AndroidAction.BUILD_AND_RUN)
@@ -4892,7 +4882,6 @@ private fun WorkspaceScreen(
                 activeChatId = state.activeChatId,
                 switchingEnabled = !state.isRunning,
                 selected = selectedTab,
-                changesCount = state.changes.size,
                 projects = state.projects,
                 activeProjectId = state.activeProject?.id,
                 profileName = state.githubLogin?.takeIf { it.isNotBlank() } ?: "Mobile Harness",
@@ -4909,7 +4898,6 @@ private fun WorkspaceScreen(
                     drawerScope.launch { drawerState.close() }
                     onOpenProjects()
                 },
-                onOpenAgent = onOpenAgent,
                 onOpenSettings = onOpenSettings,
                 onCreateChat = {
                     selectedTab = WorkspaceTab.CHAT
@@ -4972,6 +4960,14 @@ private fun WorkspaceScreen(
                         ) {
                             if (state.androidBuildRunning) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             else Icon(Icons.Default.PlayArrow, stringResource(R.string.ws_build_run_android))
+                        }
+                    }
+                    IconButton(onClick = { selectedTab = WorkspaceTab.FILES; onRefreshFiles() }) {
+                        Icon(Icons.Default.Description, stringResource(R.string.tab_files))
+                    }
+                    if (state.changes.isNotEmpty()) {
+                        IconButton(onClick = { selectedTab = WorkspaceTab.CHANGES }) {
+                            Icon(Icons.Default.Code, stringResource(R.string.tab_changes))
                         }
                     }
                     IconButton(onClick = onCreateChat) { Icon(Icons.Default.Add, stringResource(R.string.ws_new_chat)) }
@@ -5164,13 +5160,11 @@ private fun ConversationDrawer(
     activeChatId: String?,
     switchingEnabled: Boolean,
     selected: WorkspaceTab,
-    changesCount: Int,
     projects: List<Project>,
     activeProjectId: String?,
     profileName: String,
     onSelectTab: (WorkspaceTab) -> Unit,
     onOpenProjects: () -> Unit,
-    onOpenAgent: () -> Unit,
     onOpenSettings: () -> Unit,
     onCreateChat: () -> Unit,
     onSwitchChat: (String) -> Unit,
@@ -5269,52 +5263,18 @@ private fun ConversationDrawer(
             }
             StaggeredDrawerItem(index = 3) {
                 DrawerItem(
-                    icon = Icons.Default.Description,
-                    label = stringResource(R.string.tab_files),
-                    selected = selected == WorkspaceTab.FILES,
-                    onClick = { onSelectTab(WorkspaceTab.FILES) },
-                )
-            }
-            StaggeredDrawerItem(index = 4) {
-                DrawerItem(
                     icon = Icons.Default.Terminal,
                     label = stringResource(R.string.tab_terminal),
                     selected = selected == WorkspaceTab.TERMINAL,
                     onClick = { onSelectTab(WorkspaceTab.TERMINAL) },
                 )
             }
-            StaggeredDrawerItem(index = 5) {
+            StaggeredDrawerItem(index = 4) {
                 DrawerItem(
                     icon = Icons.Default.Preview,
                     label = stringResource(R.string.tab_preview),
                     selected = selected == WorkspaceTab.PREVIEW,
                     onClick = { onSelectTab(WorkspaceTab.PREVIEW) },
-                )
-            }
-            if (changesCount > 0) {
-                StaggeredDrawerItem(index = 6) {
-                    DrawerItem(
-                        icon = Icons.Default.Code,
-                        label = "${stringResource(R.string.ws_changes_badge)} ($changesCount)",
-                        selected = selected == WorkspaceTab.CHANGES,
-                        onClick = { onSelectTab(WorkspaceTab.CHANGES) },
-                    )
-                }
-            }
-            StaggeredDrawerItem(index = 7) {
-                DrawerItem(
-                    icon = Icons.Default.SmartToy,
-                    label = stringResource(R.string.tab_agent),
-                    selected = false,
-                    onClick = onOpenAgent,
-                )
-            }
-            StaggeredDrawerItem(index = 8) {
-                DrawerItem(
-                    icon = Icons.Default.Settings,
-                    label = stringResource(R.string.tab_settings),
-                    selected = false,
-                    onClick = onOpenSettings,
                 )
             }
 
