@@ -187,6 +187,12 @@
     <string name="settings_agent_subtitle">Agent, API keys, models and credentials</string>
     <string name="projects_search_hint">Search projects</string>
     <string name="projects_auto_hint">Projects chat karte hi apne aap ban jaate hain</string>
+    <string name="api_key_prompt_title">Add an API key</string>
+    <string name="api_key_prompt_body">The selected provider needs a key before it can run tasks.</string>
+    <string name="api_key_prompt_action">Add key</string>
+    <string name="settings_update_packages">Update packages</string>
+    <string name="settings_update_packages_desc">Keep agents and toolchains on the latest versions</string>
+    <string name="settings_update_all">Update all to latest</string>
     <string name="greeting_morning">Good morning</string>
     <string name="greeting_afternoon">Good afternoon</string>
     <string name="greeting_evening">Good evening</string>

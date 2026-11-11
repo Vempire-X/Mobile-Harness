@@ -165,6 +165,8 @@ fun SettingsScreen(
     openBackup: Boolean = false,
     onBack: (() -> Unit)? = null,
     onOpenAgent: (() -> Unit)? = null,
+    onUpdateAllPackages: (() -> Unit)? = null,
+    packagesBusy: Boolean = false,
 ) {
     val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
@@ -275,6 +277,46 @@ fun SettingsScreen(
                                 modifier = Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        }
+                    }
+                }
+            }
+
+            if (onUpdateAllPackages != null) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text(
+                                text = stringResource(R.string.settings_update_packages),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(R.string.settings_update_packages_desc),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = onUpdateAllPackages,
+                                enabled = !packagesBusy,
+                            ) {
+                                if (packagesBusy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(stringResource(R.string.settings_update_all), fontSize = 13.sp)
+                            }
                         }
                     }
                 }

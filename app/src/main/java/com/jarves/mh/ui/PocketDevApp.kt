@@ -345,6 +345,15 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     var workspaceOverlay by rememberSaveable { mutableStateOf(WorkspaceOverlay.NONE) }
     var rootScreen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
     var requestedWorkspaceTab by remember { mutableStateOf<WorkspaceTab?>(null) }
+    var keyRetryPending by remember { mutableStateOf(false) }
+    // Saving a key makes the provider usable again, so re-run the message that failed.
+    LaunchedEffect(state.provider.hasSecret, keyRetryPending) {
+        if (keyRetryPending && state.provider.hasSecret) {
+            keyRetryPending = false
+            val lastPrompt = state.messages.lastOrNull { it.fromUser }?.text
+            if (!lastPrompt.isNullOrBlank()) viewModel.sendPrompt(lastPrompt)
+        }
+    }
     // Chat-first launch: open the most recently updated project straight into its conversation
     // instead of stopping at the projects list. Runs once per process; the user returning to the
     // projects screen afterwards is not overridden.
@@ -399,6 +408,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
                     onBack = { workspaceOverlay = WorkspaceOverlay.NONE },
                     onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
+                    onUpdateAllPackages = viewModel::updateAllPackages,
+                    packagesBusy = state.agentUpdating != null || state.agentUpdatesChecking,
                 )
             } else {
                 AgentScreen(
@@ -530,6 +541,10 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onOpenProjects = { rootScreen = RootScreen.PROJECTS; viewModel.closeProject() },
             onOpenSettings = { workspaceOverlay = WorkspaceOverlay.SETTINGS },
             onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
+            onAddApiKey = {
+                keyRetryPending = true
+                workspaceOverlay = WorkspaceOverlay.AGENT
+            },
             onSelectChatModel = { model ->
                 if (state.agentKind == AgentKind.ANTIGRAVITY) {
                     if (model != null) viewModel.setAntigravityModel(model)
@@ -4559,6 +4574,7 @@ private fun WorkspaceScreen(
     onOpenSettings: () -> Unit,
     onOpenAgent: () -> Unit,
     onSelectChatModel: (String?) -> Unit,
+    onAddApiKey: () -> Unit,
     onOpenProject: (Project) -> Unit,
     onRenameProject: (String, String) -> Unit,
     onDeleteProject: (String) -> Unit,
@@ -5021,6 +5037,8 @@ private fun WorkspaceScreen(
                     availableModels = chatModelOptions,
                     selectedModel = chatSelectedModel,
                     onSelectModel = onSelectChatModel,
+                    needsApiKey = state.agentKind != AgentKind.ANTIGRAVITY && !state.provider.hasSecret,
+                    onAddApiKey = onAddApiKey,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
@@ -7051,6 +7069,8 @@ private fun ChatTab(
     availableModels: List<String> = emptyList(),
     selectedModel: String? = null,
     onSelectModel: (String?) -> Unit = {},
+    needsApiKey: Boolean = false,
+    onAddApiKey: () -> Unit = {},
 ) {
     val view = LocalView.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
@@ -7214,6 +7234,11 @@ private fun ChatTab(
                     }
                 }
 
+                if (needsApiKey) {
+                    ApiKeyPromptCard(onAddApiKey = onAddApiKey)
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 val canSend = prompt.isNotBlank() || pendingAttachments.isNotEmpty()
                 var showModelSheet by remember { mutableStateOf(false) }
                 val composerBackground = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
@@ -7327,6 +7352,46 @@ private fun ChatTab(
                         },
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Inline replacement for the red "no API key" failure: actionable, right in the chat. */
+@Composable
+private fun ApiKeyPromptCard(onAddApiKey: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.Key,
+                contentDescription = null,
+                modifier = Modifier.size(Dimens.iconSmall),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.api_key_prompt_title),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(R.string.api_key_prompt_body),
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onAddApiKey) {
+                Text(stringResource(R.string.api_key_prompt_action), fontSize = 13.sp)
             }
         }
     }
