@@ -540,7 +540,6 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onRequestedTabHandled = { requestedWorkspaceTab = null },
             onOpenProjects = { rootScreen = RootScreen.PROJECTS; viewModel.closeProject() },
             onOpenSettings = { workspaceOverlay = WorkspaceOverlay.SETTINGS },
-            onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
             onAddApiKey = {
                 keyRetryPending = true
                 workspaceOverlay = WorkspaceOverlay.AGENT
@@ -4572,7 +4571,6 @@ private fun WorkspaceScreen(
     onRequestedTabHandled: () -> Unit = {},
     onOpenProjects: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenAgent: () -> Unit,
     onSelectChatModel: (String?) -> Unit,
     onAddApiKey: () -> Unit,
     onOpenProject: (Project) -> Unit,

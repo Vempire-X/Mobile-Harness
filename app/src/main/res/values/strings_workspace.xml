@@ -160,7 +160,6 @@
     <string name="ws_open_menu">Open menu</string>
     <string name="ws_refresh_preview">Refresh preview</string>
     <string name="chat_input_placeholder">Describe your task...</string>
-    <string name="ws_chip_think">Think</string>
     <string name="ws_thought_for">Thought for %1$s</string>
     <string name="ws_thinking">Thinking</string>
     <string name="ws_show_more">Show more</string>
@@ -177,7 +176,6 @@
     <string name="sidebar_yesterday">Yesterday</string>
     <string name="sidebar_previous_7_days">Previous 7 days</string>
     <string name="sidebar_older">Older</string>
-    <string name="ws_think_unsupported">Reasoning effort is available for Antigravity models only</string>
     <string name="chat_model_title">Choose model</string>
     <string name="chat_model_auto">Auto</string>
     <string name="chat_voice_input">Voice input</string>
