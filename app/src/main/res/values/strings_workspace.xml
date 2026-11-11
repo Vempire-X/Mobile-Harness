@@ -193,7 +193,6 @@
     <string name="settings_update_all">Update all to latest</string>
     <string name="setup_heading">Setting up Mobile Harness</string>
     <string name="setup_subheading">Installing the runtime, agents and toolchains in the background.</string>
-    <string name="setup_live_terminal">Live setup terminal</string>
     <string name="setup_continue_to_chat">Continue to chat</string>
     <string name="setup_running_banner">Setup chal raha hai</string>
     <string name="vm_setup_storage_low">Not enough free storage. At least %1$d MB is needed.</string>
