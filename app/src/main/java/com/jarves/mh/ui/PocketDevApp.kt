@@ -152,8 +152,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -199,6 +203,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -264,10 +269,8 @@ import com.jarves.mh.network.ConnectionValidation
 import com.jarves.mh.network.DiscoveredModel
 import com.jarves.mh.network.ModelDiscoveryResult
 import com.jarves.mh.network.GitHubRepository
-import com.jarves.mh.ui.components.PocketFloatingNav
 import com.jarves.mh.ui.components.PocketGlassCard
 import com.jarves.mh.ui.components.PocketIconTile
-import com.jarves.mh.ui.components.PocketNavItem
 import com.jarves.mh.ui.components.PocketPrimaryButton
 import com.jarves.mh.ui.components.PocketSecondaryButton
 import com.jarves.mh.ui.components.PocketSectionHeader
@@ -301,6 +304,8 @@ private enum class RootScreen(@StringRes val labelRes: Int, val icon: ImageVecto
     AGENT(R.string.tab_agent, Icons.Default.SmartToy),
     SETTINGS(R.string.tab_settings, Icons.Default.Settings),
 }
+private enum class WorkspaceOverlay { NONE, SETTINGS, AGENT }
+
 private enum class WorkspaceTab(@StringRes val labelRes: Int, val icon: ImageVector) {
     CHAT(R.string.tab_chat, Icons.Default.AutoAwesome),
     FILES(R.string.tab_files, Icons.Default.Folder),
@@ -321,6 +326,90 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         }
     }
     BackupRestartEffect()
+    var workspaceOverlay by rememberSaveable { mutableStateOf(WorkspaceOverlay.NONE) }
+    var rootScreen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
+    // Chat-first launch: open the most recently updated project straight into its conversation
+    // instead of stopping at the projects list. Runs once per process; the user returning to the
+    // projects screen afterwards is not overridden.
+    var autoOpenDone by remember { mutableStateOf(false) }
+    LaunchedEffect(state.startupStage) {
+        if (!autoOpenDone && state.startupStage == StartupStage.READY) {
+            autoOpenDone = true
+            if (state.activeProject == null && state.readOnlyProject == null && state.projects.isNotEmpty()) {
+                state.projects.maxByOrNull { it.updatedAtMillis }?.let(viewModel::openProject)
+            }
+        }
+    }
+    if (workspaceOverlay != WorkspaceOverlay.NONE) {
+        key(workspaceOverlay) {
+            if (workspaceOverlay == WorkspaceOverlay.SETTINGS) {
+                SettingsScreen(
+                    state = state,
+                    showBackupDot = !state.backupFeatureSeen,
+                    onBackupOpened = {
+                        workspaceOverlay = WorkspaceOverlay.NONE
+                        viewModel.markBackupFeatureSeen()
+                    },
+                    openBackup = false,
+                    onClearTerminal = viewModel::clearTerminal,
+                    onSaveProvider = { profile, key -> viewModel.updateProvider(profile, key) },
+                    onDiscoverModels = viewModel::discoverModels,
+                    onValidateProvider = viewModel::validateProvider,
+                    onSetThemeMode = viewModel::setThemeMode,
+                    onSetLanguage = viewModel::setLanguage,
+                    onPing = viewModel::pingApi,
+                    getSavedApiKey = viewModel::getSavedApiKey,
+                    getSavedApiKeys = viewModel::getSavedApiKeys,
+                    onAddApiKey = viewModel::addApiKey,
+                    onActivateApiKey = viewModel::activateApiKey,
+                    onRemoveApiKey = viewModel::removeApiKey,
+                    onInstallDevStack = viewModel::installDevStack,
+                    onRemoveDevStack = viewModel::removeDevStack,
+                    onInstallAgent = viewModel::installAgent,
+                    onCheckAgentUpdates = viewModel::checkAgentUpdates,
+                    onUpdateAgent = viewModel::updateAgent,
+                    onStartAntigravityLogin = viewModel::startAntigravityLogin,
+                    onSubmitAntigravityCode = viewModel::submitAntigravityCode,
+                    onLogoutAntigravity = viewModel::logoutAntigravity,
+                    onRefreshAntigravityModels = viewModel::refreshAntigravityModels,
+                    onSetAntigravityModel = viewModel::setAntigravityModel,
+                    onSetAntigravityEffort = viewModel::setAntigravityEffort,
+                    initialDebugUpdateManifestUrl = viewModel.debugUpdateManifestUrl(),
+                    onSetDebugUpdateManifestUrl = viewModel::setDebugUpdateManifestUrl,
+                    onClearDebugUpdateManifestUrl = viewModel::clearDebugUpdateManifestUrl,
+                    onRefreshDiagnostics = viewModel::refreshDeveloperDiagnostics,
+                    onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
+                    onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
+                    onBack = { workspaceOverlay = WorkspaceOverlay.NONE },
+                )
+            } else {
+                AgentScreen(
+                    state = state,
+                    onSaveProvider = { profile, key -> viewModel.updateProvider(profile, key) },
+                    onDiscoverModels = viewModel::discoverModels,
+                    onValidateProvider = viewModel::validateProvider,
+                    onPing = viewModel::pingApi,
+                    getSavedApiKey = viewModel::getSavedApiKey,
+                    getSavedApiKeys = viewModel::getSavedApiKeys,
+                    onAddApiKey = viewModel::addApiKey,
+                    onActivateApiKey = viewModel::activateApiKey,
+                    onRemoveApiKey = viewModel::removeApiKey,
+                    onSelectAgent = viewModel::selectAgent,
+                    onInstallAgent = viewModel::installAgent,
+                    onCheckAgentUpdates = viewModel::checkAgentUpdates,
+                    onUpdateAgent = viewModel::updateAgent,
+                    onStartAntigravityLogin = viewModel::startAntigravityLogin,
+                    onSubmitAntigravityCode = viewModel::submitAntigravityCode,
+                    onLogoutAntigravity = viewModel::logoutAntigravity,
+                    onRefreshAntigravityModels = viewModel::refreshAntigravityModels,
+                    onSetAntigravityModel = viewModel::setAntigravityModel,
+                    onSetAntigravityEffort = viewModel::setAntigravityEffort,
+                    onBack = { workspaceOverlay = WorkspaceOverlay.NONE },
+                )
+            }
+        }
+        return
+    }
     when {
         state.startupStage == StartupStage.CHECKING -> StartupLoadingScreen(
             state = state,
@@ -418,6 +507,9 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         state.activeProject != null && state.workspaceVisible -> WorkspaceScreen(
             state = state,
             onBack = viewModel::closeProject,
+            onOpenProjects = { rootScreen = RootScreen.PROJECTS; viewModel.closeProject() },
+            onOpenSettings = { workspaceOverlay = WorkspaceOverlay.SETTINGS },
+            onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
             onSend = viewModel::sendPrompt,
             onStop = viewModel::stopTask,
             onSteerFollowUp = viewModel::steerQueuedFollowUp,
@@ -481,7 +573,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
         )
-        else -> RootScreenHost(state, viewModel, projectsListState)
+        else -> RootScreenHost(state, viewModel, projectsListState, screen = rootScreen, onScreenChange = { rootScreen = it })
     }
 }
 
@@ -2494,8 +2586,9 @@ private fun RootScreenHost(
     state: AppUiState,
     viewModel: MainViewModel,
     projectsListState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
+    screen: RootScreen,
+    onScreenChange: (RootScreen) -> Unit,
 ) {
-    var screen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
     var showQuickTerminal by rememberSaveable { mutableStateOf(false) }
     var openBackup by rememberSaveable { mutableStateOf(false) }
 
@@ -2505,7 +2598,7 @@ private fun RootScreenHost(
             onOpenBackup = {
                 viewModel.dismissWhatsNew()
                 openBackup = true
-                screen = RootScreen.SETTINGS
+                onScreenChange(RootScreen.SETTINGS)
             },
         )
     }
@@ -2517,33 +2610,6 @@ private fun RootScreenHost(
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            if (!keyboardVisible) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
-                            ),
-                        )
-                        .navigationBarsPadding(),
-                ) {
-                    PocketFloatingNav(
-                        items = RootScreen.entries.map {
-                            PocketNavItem(
-                                key = it,
-                                label = stringResource(it.labelRes),
-                                icon = it.icon,
-                            )
-                        },
-                        selectedKey = screen,
-                        onSelect = { key -> (key as? RootScreen)?.let { screen = it } },
-                        showBadge = { key -> key == RootScreen.SETTINGS && !state.backupFeatureSeen },
-                    )
-                }
-            }
-        },
         floatingActionButton = {
             if (screen == RootScreen.PROJECTS && !keyboardVisible && !showQuickTerminal) {
                 Surface(
@@ -2595,7 +2661,7 @@ private fun RootScreenHost(
                     onCloneGitHub = viewModel::cloneGitHubRepository,
                     onRenameProject = viewModel::renameProject,
                     onDeleteProject = viewModel::deleteProject,
-                    onSettings = { screen = RootScreen.SETTINGS },
+                    onSettings = { onScreenChange(RootScreen.SETTINGS) },
                     onPing = viewModel::pingApi,
                     onToggleTheme = viewModel::toggleTheme,
                     onInstallUpdate = viewModel::installAppUpdate,
@@ -4479,6 +4545,9 @@ private fun ReadOnlyProjectScreen(
 private fun WorkspaceScreen(
     state: AppUiState,
     onBack: () -> Unit,
+    onOpenProjects: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenAgent: () -> Unit,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
     onSteerFollowUp: (String) -> Unit,
@@ -4580,7 +4649,8 @@ private fun WorkspaceScreen(
     }
     val context = LocalContext.current
     val isAndroidProject = state.androidProjectDetected
-    val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
     var pendingAndroidAction by remember { mutableStateOf<AndroidAction?>(null) }
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
     var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
@@ -4679,7 +4749,6 @@ private fun WorkspaceScreen(
     }
 
     var selectedTab by rememberSaveable { mutableStateOf(WorkspaceTab.CHAT) }
-    var showChats by rememberSaveable { mutableStateOf(false) }
     var showAndroidBuild by rememberSaveable { mutableStateOf(false) }
     val activeChat = state.projectChats.firstOrNull { it.id == state.activeChatId }
     val requestAndroidAction: (AndroidAction) -> Unit = { action ->
@@ -4744,24 +4813,6 @@ private fun WorkspaceScreen(
         return
     }
 
-    if (showChats) {
-        ChatSwitcherDialog(
-            chats = state.projectChats,
-            activeChatId = state.activeChatId,
-            switchingEnabled = !state.isRunning,
-            onDismiss = { showChats = false },
-            onCreate = {
-                onCreateChat()
-                showChats = false
-                selectedTab = WorkspaceTab.CHAT
-            },
-            onSwitch = { chatId ->
-                onSwitchChat(chatId)
-                showChats = false
-                selectedTab = WorkspaceTab.CHAT
-            },
-        )
-    }
     state.pendingTerminalCommand?.let { command ->
         AlertDialog(
             onDismissRequest = onTerminalCancel,
@@ -4784,14 +4835,51 @@ private fun WorkspaceScreen(
             dismissButton = { TextButton(onClick = onTerminalCancel) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            ConversationDrawer(
+                projectName = state.activeProject?.name.orEmpty(),
+                chats = state.projectChats,
+                activeChatId = state.activeChatId,
+                switchingEnabled = !state.isRunning,
+                selected = selectedTab,
+                changesCount = state.changes.size,
+                onSelectTab = { tab ->
+                    selectedTab = tab
+                    if (tab == WorkspaceTab.FILES) onRefreshFiles()
+                    if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
+                    drawerScope.launch { drawerState.close() }
+                },
+                onOpenProjects = {
+                    drawerScope.launch { drawerState.close() }
+                    onOpenProjects()
+                },
+                onOpenAgent = onOpenAgent,
+                onOpenSettings = onOpenSettings,
+                onCreateChat = {
+                    selectedTab = WorkspaceTab.CHAT
+                    onCreateChat()
+                    drawerScope.launch { drawerState.close() }
+                },
+                onSwitchChat = { chatId ->
+                    onSwitchChat(chatId)
+                    selectedTab = WorkspaceTab.CHAT
+                    drawerScope.launch { drawerState.close() }
+                },
+            )
+        },
+    ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column(Modifier.fillMaxWidth()) {
                         Text(
-                            state.activeProject?.name.orEmpty(),
+                            activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat),
                             fontWeight = FontWeight.SemiBold,
+                            fontSize = 17.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.combinedClickable(
@@ -4801,9 +4889,9 @@ private fun WorkspaceScreen(
                                 },
                             ),
                         )
-                        // Agent first so it always stays visible; a long chat title is cut with "…".
+                        // Project name first so it stays visible; agent is the context cue.
                         Text(
-                            "${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()} · ${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)}",
+                            "${state.activeProject?.name.orEmpty()} · ${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()}",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -4811,7 +4899,7 @@ private fun WorkspaceScreen(
                         )
                     }
                 },
-                navigationIcon = { IconButton(onClick = requestBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) } },
+                navigationIcon = { IconButton(onClick = { drawerScope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, stringResource(R.string.ws_open_menu)) } },
                 actions = {
                     if (isAndroidProject) {
                         IconButton(
@@ -4822,46 +4910,11 @@ private fun WorkspaceScreen(
                             else Icon(Icons.Default.PlayArrow, stringResource(R.string.ws_build_run_android))
                         }
                     }
-                    IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, stringResource(R.string.ws_project_chats)) }
+                    IconButton(onClick = onCreateChat) { Icon(Icons.Default.Add, stringResource(R.string.ws_new_chat)) }
                     if (state.isRunning) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
-        },
-        bottomBar = {
-            if (!keyboardVisible) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
-                            ),
-                        )
-                        .navigationBarsPadding(),
-                ) {
-                    PocketFloatingNav(
-                        items = WorkspaceTab.entries
-                            .filter { it != WorkspaceTab.CHANGES }
-                            .map { tab ->
-                                PocketNavItem(
-                                    key = tab,
-                                    label = stringResource(tab.labelRes),
-                                    icon = tab.icon,
-                                )
-                            },
-                        selectedKey = selectedTab,
-                        onSelect = { key ->
-                            val tab = key as? WorkspaceTab
-                            if (tab != null) {
-                                selectedTab = tab
-                                if (tab == WorkspaceTab.FILES) onRefreshFiles()
-                                if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
-                            }
-                        },
-                    )
-                }
-            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
@@ -4975,6 +5028,249 @@ private fun WorkspaceScreen(
                 WorkspaceTab.PREVIEW -> PreviewTab(state.previewReady, state.previewUrl)
             }
         }
+    }
+    }
+}
+
+/**
+ * Claude-style navigation drawer: wordmark, view switcher, Recents for the active project and a
+ * full-width "New chat" action pinned to the bottom. Every row drives the same callbacks as the
+ * removed bottom bars, so no workflow is lost by dropping the tab bars.
+ */
+@Composable
+private fun ConversationDrawer(
+    projectName: String,
+    chats: List<ProjectChat>,
+    activeChatId: String?,
+    switchingEnabled: Boolean,
+    selected: WorkspaceTab,
+    changesCount: Int,
+    onSelectTab: (WorkspaceTab) -> Unit,
+    onOpenProjects: () -> Unit,
+    onOpenAgent: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onCreateChat: () -> Unit,
+    onSwitchChat: (String) -> Unit,
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxHeight().width(300.dp),
+    ) {
+        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
+            // Wordmark
+            Row(
+                Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BrandMark(compact = true)
+                Spacer(Modifier.width(10.dp))
+                Column {
+                    Text(
+                        "Mobile Harness",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (projectName.isNotBlank()) {
+                        Text(
+                            projectName,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(6.dp))
+            DrawerItem(
+                icon = Icons.Default.Chat,
+                label = stringResource(R.string.tab_chat),
+                selected = selected == WorkspaceTab.CHAT,
+                onClick = { onSelectTab(WorkspaceTab.CHAT) },
+            )
+            DrawerItem(
+                icon = Icons.Default.Folder,
+                label = stringResource(R.string.tab_projects),
+                selected = false,
+                onClick = onOpenProjects,
+            )
+            DrawerItem(
+                icon = Icons.Default.Description,
+                label = stringResource(R.string.tab_files),
+                selected = selected == WorkspaceTab.FILES,
+                onClick = { onSelectTab(WorkspaceTab.FILES) },
+            )
+            DrawerItem(
+                icon = Icons.Default.Terminal,
+                label = stringResource(R.string.tab_terminal),
+                selected = selected == WorkspaceTab.TERMINAL,
+                onClick = { onSelectTab(WorkspaceTab.TERMINAL) },
+            )
+            DrawerItem(
+                icon = Icons.Default.Preview,
+                label = stringResource(R.string.tab_preview),
+                selected = selected == WorkspaceTab.PREVIEW,
+                onClick = { onSelectTab(WorkspaceTab.PREVIEW) },
+            )
+            // Only offered while there is something to review, so the drawer stays honest.
+            if (changesCount > 0) {
+                DrawerItem(
+                    icon = Icons.Default.Code,
+                    label = "${stringResource(R.string.ws_changes_badge)} ($changesCount)",
+                    selected = selected == WorkspaceTab.CHANGES,
+                    onClick = { onSelectTab(WorkspaceTab.CHANGES) },
+                )
+            }
+            DrawerItem(
+                icon = Icons.Default.SmartToy,
+                label = stringResource(R.string.tab_agent),
+                selected = false,
+                onClick = onOpenAgent,
+            )
+            DrawerItem(
+                icon = Icons.Default.Settings,
+                label = stringResource(R.string.tab_settings),
+                selected = false,
+                onClick = onOpenSettings,
+            )
+
+            HorizontalDivider(
+                Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            )
+            Text(
+                text = stringResource(R.string.recents_label),
+                modifier = Modifier.padding(start = 22.dp, end = 20.dp, bottom = 6.dp),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                if (chats.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.ws_project_chats),
+                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 8.dp),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    chats.forEach { chat ->
+                        item(key = chat.id) {
+                            RecentChatRow(
+                                title = chat.localizedTitle(),
+                                selected = chat.id == activeChatId,
+                                enabled = switchingEnabled || chat.id == activeChatId,
+                                onClick = { onSwitchChat(chat.id) },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Footer action
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    onClick = onCreateChat,
+                    enabled = switchingEnabled,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.surface,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.ws_new_chat),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.surface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (selected) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                else Modifier,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = tint)
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun RecentChatRow(
+    title: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (selected) Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                else Modifier,
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -6417,6 +6713,8 @@ private fun ChatTab(
             !listState.canScrollForward
         }
     }
+    // First-run empty chat: greet instead of showing a blank list, like consumer AI apps.
+    val showGreeting = messages.isEmpty() && liveProcess.isEmpty() && !thinkingActive && approval == null
     Column(Modifier.fillMaxSize().imePadding()) {
         Box(Modifier.weight(1f)) {
             LazyColumn(
@@ -6445,7 +6743,10 @@ private fun ChatTab(
                 }
                 approval?.let { request -> item { ApprovalCard(request, onApproval) } }
             }
-            if (!readerAtBottom) {
+            if (showGreeting) {
+                GreetingEmptyState(modifier = Modifier.align(Alignment.Center))
+            }
+            if (!readerAtBottom && !showGreeting) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -6681,6 +6982,41 @@ private fun ChatTab(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GreetingEmptyState(modifier: Modifier = Modifier) {
+    val hour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    val greetingRes = when (hour) {
+        in 4..11 -> R.string.greeting_morning
+        in 12..16 -> R.string.greeting_afternoon
+        in 17..22 -> R.string.greeting_evening
+        else -> R.string.greeting_night
+    }
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        BrandMark(modifier = Modifier.size(72.dp))
+        Spacer(Modifier.height(22.dp))
+        Text(
+            text = "${stringResource(greetingRes)}. ${stringResource(R.string.help_prompt)}",
+            fontSize = 27.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 35.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = stringResource(R.string.empty_chat_subtitle),
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -6942,28 +7278,36 @@ private fun ActivitySummaryRow(
     onToggle: () -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(
-        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        tonalElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
-        Icon(
-            activityIcon(item),
-            null,
-            Modifier.size(16.dp),
-            tint = muted,
-        )
-        Spacer(Modifier.width(9.dp))
-        Text(text, Modifier.weight(1f), fontSize = 13.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (showProgress) {
-            AnimatedThinkingDots(dotColor = muted)
-            Spacer(Modifier.width(6.dp))
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                activityIcon(item),
+                null,
+                Modifier.size(15.dp),
+                tint = muted,
+            )
+            Spacer(Modifier.width(9.dp))
+            Text(text, Modifier.weight(1f), fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (showProgress) {
+                AnimatedThinkingDots(dotColor = muted)
+                Spacer(Modifier.width(6.dp))
+            }
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                if (expanded) stringResource(R.string.ws_collapse_activity) else stringResource(R.string.ws_expand_activity),
+                Modifier.size(17.dp),
+                tint = muted,
+            )
         }
-        Icon(
-            if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            if (expanded) stringResource(R.string.ws_collapse_activity) else stringResource(R.string.ws_expand_activity),
-            Modifier.size(18.dp),
-            tint = muted,
-        )
     }
 }
 
@@ -7121,36 +7465,19 @@ private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Uni
     } else {
         message.text
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start) {
-        Surface(
-            color = if (message.fromUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth(if (message.fromUser) .82f else .92f),
-        ) {
-            Column(Modifier.padding(top = 12.dp)) {
+    if (message.fromUser) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 8.dp),
+                modifier = Modifier.fillMaxWidth(.82f),
+            ) {
                 SelectionContainer {
-                    if (message.fromUser) {
-                        Text(
-                            text = message.text,
-                            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
-                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    } else {
-                        MarkdownText(
-                            markdown = displayedText,
-                            modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            onRunCode = onRunInTerminal,
-                        )
-                    }
-                }
-                if (!message.fromUser && message.workedMillis > 0L) {
                     Text(
-                        text = stringResource(R.string.ws_worked_for, formatDuration((message.workedMillis / 1_000L).coerceAtLeast(1L))),
-                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 10.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        text = message.text,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
                 if (message.attachments.isNotEmpty()) {
@@ -7163,7 +7490,36 @@ private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Uni
                         }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+            }
+        }
+        return
+    }
+    // Assistant replies render as plain text, like the rest of the app's markdown output.
+    Column(Modifier.fillMaxWidth(.94f).padding(vertical = 2.dp)) {
+        SelectionContainer {
+            MarkdownText(
+                markdown = displayedText,
+                modifier = Modifier.padding(horizontal = 4.dp),
+                color = MaterialTheme.colorScheme.onSurface,
+                onRunCode = onRunInTerminal,
+            )
+        }
+        if (message.workedMillis > 0L) {
+            Text(
+                text = stringResource(R.string.ws_worked_for, formatDuration((message.workedMillis / 1_000L).coerceAtLeast(1L))),
+                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+            )
+        }
+        if (message.attachments.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                message.attachments.forEach { attachment ->
+                    AttachmentChip(attachment = attachment, onOpen = { onOpenAttachment(attachment) }, onRemove = null)
+                }
             }
         }
     }
