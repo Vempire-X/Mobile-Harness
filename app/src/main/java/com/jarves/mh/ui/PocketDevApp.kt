@@ -4851,10 +4851,12 @@ private fun WorkspaceScreen(
                             },
                         selectedKey = selectedTab,
                         onSelect = { key ->
-                            val tab = key as? WorkspaceTab ?: return@PocketFloatingNav
-                            selectedTab = tab
-                            if (tab == WorkspaceTab.FILES) onRefreshFiles()
-                            if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
+                            val tab = key as? WorkspaceTab
+                            if (tab != null) {
+                                selectedTab = tab
+                                if (tab == WorkspaceTab.FILES) onRefreshFiles()
+                                if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
+                            }
                         },
                     )
                 }

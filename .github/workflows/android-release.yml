@@ -32,17 +32,16 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The ubuntu runner image already ships the Android SDK; installing the
+      # pinned NDK/CMake here keeps the native PRoot build reproducible.
       - name: Install NDK, CMake and platform packages
         run: |
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
             "cmake;3.22.1"
-          yes | sdkmanager --licenses > /dev/null
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
