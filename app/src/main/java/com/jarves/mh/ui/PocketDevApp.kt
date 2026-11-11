@@ -358,13 +358,27 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     // instead of stopping at the projects list. Runs once per process; the user returning to the
     // projects screen afterwards is not overridden.
     var autoOpenDone by remember { mutableStateOf(false) }
-    LaunchedEffect(state.startupStage) {
+    LaunchedEffect(state.startupStage, state.projects) {
         if (!autoOpenDone && state.startupStage == StartupStage.READY) {
             autoOpenDone = true
-            if (state.activeProject == null && state.readOnlyProject == null && state.projects.isNotEmpty()) {
-                state.projects.maxByOrNull { it.updatedAtMillis }?.let(viewModel::openProject)
+            if (state.activeProject == null && state.readOnlyProject == null) {
+                val latest = state.projects.maxByOrNull { it.updatedAtMillis }
+                if (latest != null) {
+                    viewModel.openProject(latest)
+                } else {
+                    // No project yet: open a chat straight away; it is renamed from the first task.
+                    viewModel.createProject(context.getString(R.string.ws_new_chat))
+                }
             }
         }
+    }
+    // Name the auto-created chat after the user's first task, like consumer chat apps.
+    LaunchedEffect(state.activeProject?.id, state.messages.size) {
+        val project = state.activeProject ?: return@LaunchedEffect
+        if (project.name != context.getString(R.string.ws_new_chat)) return@LaunchedEffect
+        val firstUser = state.messages.firstOrNull { it.fromUser } ?: return@LaunchedEffect
+        val title = firstUser.text.trim().replace(Regex("\\s+"), " ").take(42)
+        if (title.isNotBlank()) viewModel.renameProject(project.id, title)
     }
     if (workspaceOverlay != WorkspaceOverlay.NONE) {
         key(workspaceOverlay) {
@@ -461,29 +475,15 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                 onToggleTheme = viewModel::toggleTheme,
                 onContinue = viewModel::finishBackgroundSetup,
             )
-        state.startupStage == StartupStage.SETUP_REQUIRED -> RuntimeSetupPromptScreen(
-            selectedStacks = state.selectedDevStacks,
-            selectedAgent = state.agentKind,
-            themeMode = state.themeMode,
-            currentLanguageCode = state.languageCode,
-            onSetLanguage = viewModel::setLanguage,
-            onToggleTheme = viewModel::toggleTheme,
-            onToggleStack = viewModel::toggleDevStack,
-            onSelectAgent = viewModel::selectAgent,
-            onDownload = viewModel::startRuntimeSetup,
+        state.activeProject == null && (
+            state.startupStage == StartupStage.SETUP_REQUIRED ||
+                state.startupStage == StartupStage.INSTALLING ||
+                state.startupStage == StartupStage.INITIALIZING
+            ) -> AutoSetupScreen(
+            state = state,
+            onRetry = viewModel::retryStartup,
+            onContinueToChat = { viewModel.createProject(context.getString(R.string.ws_new_chat)) },
         )
-        state.startupStage == StartupStage.INSTALLING && state.showDetailedSetupProgress ->
-            RuntimeInstallationScreen(
-                state = state,
-                themeMode = state.themeMode,
-                onToggleTheme = viewModel::toggleTheme,
-            )
-        state.startupStage == StartupStage.INSTALLING || state.startupStage == StartupStage.INITIALIZING ->
-            StartupLoadingScreen(
-                state = state,
-                themeMode = state.themeMode,
-                onToggleTheme = viewModel::toggleTheme,
-            )
         state.startupStage == StartupStage.ERROR -> StartupErrorScreen(
             message = state.startupError,
             isOffline = state.startupErrorIsOffline,
@@ -2189,6 +2189,134 @@ private fun RuntimeInstallationScreen(
                 lineHeight = 16.sp,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+/**
+ * Single first-run screen: a heading, one live setup card with progress and logs, and a way into
+ * the chat while installation continues in the foreground service.
+ */
+@Composable
+private fun AutoSetupScreen(
+    state: AppUiState,
+    onRetry: () -> Unit,
+    onContinueToChat: () -> Unit,
+) {
+    var autoRetries by remember { mutableStateOf(0) }
+    LaunchedEffect(state.startupStage, state.startupError, state.startupErrorIsOffline) {
+        if (state.startupStage == StartupStage.ERROR && state.startupErrorIsOffline && autoRetries < 3) {
+            delay(5_000)
+            autoRetries += 1
+            onRetry()
+        }
+    }
+    val cursor = rememberInfiniteTransition(label = "setup_cursor")
+    val cursorAlpha by cursor.animateFloat(
+        initialValue = 1f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(animation = tween(560), repeatMode = RepeatMode.Reverse),
+        label = "setup_cursor_alpha",
+    )
+    val progress = state.startupProgress.coerceIn(0f, 1f)
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = Dimens.screenPadding, vertical = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = stringResource(R.string.setup_heading),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.setup_subheading),
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(20.dp))
+
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.setup_live_terminal),
+                        modifier = Modifier.weight(1f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                if (state.startupIndeterminate) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                }
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 140.dp, max = 200.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0B0B0B))
+                        .padding(10.dp),
+                ) {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        state.startupLogs.takeLast(60).forEach { line ->
+                            Text(
+                                text = line,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                                color = Color(0xFFB9C0CC),
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .padding(top = 2.dp)
+                                .size(width = 7.dp, height = 13.dp)
+                                .alpha(cursorAlpha)
+                                .background(Color(0xFFB9C0CC)),
+                        )
+                    }
+                }
+                state.startupError?.let { error ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = error,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = onRetry) {
+                        Text(stringResource(R.string.setup_retry), fontSize = 13.sp)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = onContinueToChat, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.setup_continue_to_chat), fontSize = 13.sp)
+                }
+            }
         }
     }
 }
@@ -5037,6 +5165,8 @@ private fun WorkspaceScreen(
                     onSelectModel = onSelectChatModel,
                     needsApiKey = state.agentKind != AgentKind.ANTIGRAVITY && !state.provider.hasSecret,
                     onAddApiKey = onAddApiKey,
+                    setupRunning = state.startupStage == StartupStage.INSTALLING ||
+                        state.startupStage == StartupStage.INITIALIZING,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
@@ -7069,6 +7199,7 @@ private fun ChatTab(
     onSelectModel: (String?) -> Unit = {},
     needsApiKey: Boolean = false,
     onAddApiKey: () -> Unit = {},
+    setupRunning: Boolean = false,
 ) {
     val view = LocalView.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
@@ -7232,6 +7363,10 @@ private fun ChatTab(
                     }
                 }
 
+                if (setupRunning) {
+                    SetupRunningBanner()
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (needsApiKey) {
                     ApiKeyPromptCard(onAddApiKey = onAddApiKey)
                     Spacer(Modifier.height(8.dp))
@@ -7351,6 +7486,33 @@ private fun ChatTab(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Small banner shown above the composer while first-run setup keeps installing. */
+@Composable
+private fun SetupRunningBanner() {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.setup_running_banner),
+                fontSize = 12.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
