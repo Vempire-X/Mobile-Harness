@@ -4,6 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -77,7 +84,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -108,6 +117,9 @@ import com.jarves.mh.R
 import com.jarves.mh.runtime.AntigravityAuthStatus
 import com.jarves.mh.ui.theme.AppLanguage
 import com.jarves.mh.ui.theme.AppThemeMode
+import com.jarves.mh.ui.components.PocketGlassCard
+import com.jarves.mh.ui.components.PocketIconTile
+import com.jarves.mh.ui.components.PocketStatusChip
 import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.launch
 
@@ -191,28 +203,13 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 8.dp),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(9.dp),
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
-                                    shape = RoundedCornerShape(9.dp),
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(17.dp),
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
+                        PocketIconTile(
+                            Icons.Default.Settings,
+                            size = 36.dp,
+                            corner = 12.dp,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(12.dp))
                         Column {
                             Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                             Text(stringResource(R.string.settings_subtitle), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -513,7 +510,10 @@ fun SettingsScreen(
                             Text("Mobile Harness", fontWeight = FontWeight.SemiBold)
                             Text(stringResource(R.string.settings_app_desc), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text("v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        PocketStatusChip(
+                            text = "v${BuildConfig.VERSION_NAME}",
+                            tint = MaterialTheme.colorScheme.secondary,
+                        )
                     }
                 }
                 Row(
@@ -677,40 +677,75 @@ private fun SettingsAccordion(
     showDot: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    Surface(
+    val accent = MaterialTheme.colorScheme.primary
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(260),
+        label = "settings-chevron",
+    )
+    PocketGlassCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(22.dp),
+        accent = if (expanded) accent else null,
     ) {
         Column {
             Row(
-                Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onClick)
+                    .padding(horizontal = 16.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Surface(shape = RoundedCornerShape(11.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), modifier = Modifier.size(40.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) }
-                }
-                Spacer(Modifier.width(12.dp))
+                PocketIconTile(
+                    icon = icon,
+                    size = 42.dp,
+                    corner = 13.dp,
+                    tint = if (expanded) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(13.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        Text(title, fontWeight = FontWeight.Bold, fontSize = 15.5.sp)
                         if (showDot) {
-                            Spacer(Modifier.width(6.dp))
-                            Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.error, CircleShape))
+                            Spacer(Modifier.width(7.dp))
+                            Box(Modifier.size(7.dp).background(MaterialTheme.colorScheme.error, CircleShape))
                         }
                     }
-                    Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        subtitle,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Icon(
-                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    if (expanded) stringResource(R.string.st_collapse) else stringResource(R.string.st_expand),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .background(
+                            if (expanded) accent.copy(alpha = 0.14f) else Color.Transparent,
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        if (expanded) stringResource(R.string.st_collapse) else stringResource(R.string.st_expand),
+                        tint = if (expanded) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .graphicsLayer { rotationZ = chevronRotation },
+                    )
+                }
             }
-            AnimatedVisibility(expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(animationSpec = tween(260)) + fadeIn(animationSpec = tween(200)),
+                exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(120)),
+            ) {
                 Column {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { content() }
                 }
             }
@@ -1057,26 +1092,68 @@ private fun ConnectionSettings(
 
 @Composable
 private fun SelectionDot(selected: Boolean) {
+    val accent = MaterialTheme.colorScheme.primary
+    val fill by animateFloatAsState(if (selected) 1f else 0f, animationSpec = tween(180), label = "selection")
     Box(
-        Modifier.size(20.dp).border(if (selected) 2.dp else 1.dp, if (selected) PocketOrange else MaterialTheme.colorScheme.outline, CircleShape),
+        Modifier
+            .size(22.dp)
+            .border(
+                if (selected) 2.dp else 1.5.dp,
+                if (selected) accent else MaterialTheme.colorScheme.outline,
+                CircleShape,
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        if (selected) Box(Modifier.size(9.dp).background(PocketOrange, CircleShape))
+        Box(
+            Modifier
+                .size(22.dp * 0.48f * fill)
+                .background(if (fill > 0f) accent else Color.Transparent, CircleShape),
+        )
     }
 }
 
 @Composable
 private fun ModernThemeChoice(title: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) PocketOrange.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) PocketOrange else MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) accent.copy(alpha = 0.13f) else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.7f),
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) accent.copy(alpha = 0.85f) else MaterialTheme.colorScheme.outlineVariant),
+        tonalElevation = 0.dp,
     ) {
-        Column(Modifier.padding(vertical = 13.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, title, Modifier.size(20.dp), tint = if (selected) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(5.dp))
-            Text(title, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        Column(
+            Modifier.padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(contentAlignment = Alignment.TopEnd) {
+                Icon(
+                    icon,
+                    contentDescription = title,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (selected) {
+                    Box(
+                        Modifier
+                            .size(12.dp)
+                            .background(accent, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Check, null, Modifier.size(8.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
+            Spacer(Modifier.height(7.dp))
+            Text(
+                title,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color = if (selected) accent else MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
