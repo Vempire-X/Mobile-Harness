@@ -7628,6 +7628,136 @@ private fun AssistantWorkBlock(
 }
 
 @Composable
+private fun AnimatedThinkingDots(
+    modifier: Modifier = Modifier,
+    dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
+    val transition = rememberInfiniteTransition(label = "thinking_dots")
+    val dot1Offset by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0f at 0
+                -3.5f at 220
+                0f at 440
+                0f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(0),
+        ),
+        label = "dot1",
+    )
+    val dot2Offset by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0f at 0
+                -3.5f at 220
+                0f at 440
+                0f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(180),
+        ),
+        label = "dot2",
+    )
+    val dot3Offset by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0f at 0
+                -3.5f at 220
+                0f at 440
+                0f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(360),
+        ),
+        label = "dot3",
+    )
+
+    val dot1Alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0.35f at 0
+                1f at 220
+                0.35f at 440
+                0.35f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(0),
+        ),
+        label = "dot1_alpha",
+    )
+    val dot2Alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0.35f at 0
+                1f at 220
+                0.35f at 440
+                0.35f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(180),
+        ),
+        label = "dot2_alpha",
+    )
+    val dot3Alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 1100
+                0.35f at 0
+                1f at 220
+                0.35f at 440
+                0.35f at 1100
+            },
+            repeatMode = RepeatMode.Restart,
+            initialStartOffset = StartOffset(360),
+        ),
+        label = "dot3_alpha",
+    )
+
+    Row(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(3.5.dp)
+                .graphicsLayer { translationY = dot1Offset * density }
+                .background(dotColor.copy(alpha = dot1Alpha), CircleShape),
+        )
+        Box(
+            Modifier
+                .size(3.5.dp)
+                .graphicsLayer { translationY = dot2Offset * density }
+                .background(dotColor.copy(alpha = dot2Alpha), CircleShape),
+        )
+        Box(
+            Modifier
+                .size(3.5.dp)
+                .graphicsLayer { translationY = dot3Offset * density }
+                .background(dotColor.copy(alpha = dot3Alpha), CircleShape),
+        )
+    }
+}
+
+@Composable
 private fun ThinkingShimmerRow() {
     val transition = rememberInfiniteTransition(label = "thinking_shimmer")
     val alpha by transition.animateFloat(
