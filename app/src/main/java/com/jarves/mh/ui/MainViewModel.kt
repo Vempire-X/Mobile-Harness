@@ -409,6 +409,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Resolves a user-visible string in the language selected in the app. */
     private fun str(@StringRes id: Int, vararg args: Any): String = AppStrings.get(getApplication(), id, *args)
 
+    /** Rough space needed by the Ubuntu runtime, agents and toolchains. */
+    private val MIN_SETUP_BYTES = 800L * 1024L * 1024L
+
     private fun plural(@PluralsRes id: Int, count: Int, vararg args: Any): String =
         AppStrings.context(getApplication()).resources.getQuantityString(id, count, *args)
     private data class FolderMetadata(val modifiedAtMillis: Long, val childCount: Int)
@@ -2083,6 +2086,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        // Chat-first launch: no language step, no battery screen, no provider wizard.
+        // Language stays on the system default and is configurable from Settings.
+        if (!preferences.initialLanguageSelected) preferences.initialLanguageSelected = true
+        if (!preferences.backgroundSetupComplete) preferences.backgroundSetupComplete = true
+        if (!preferences.onboardingComplete) preferences.onboardingComplete = true
+        _state.update {
+            it.copy(
+                initialLanguageSelected = true,
+                backgroundSetupComplete = true,
+                onboardingComplete = true,
+            )
+        }
         val setupSnapshot = RuntimeSetupController.snapshot.value
         if (setupSnapshot.status == RuntimeSetupStatus.RUNNING) {
             onSetupSnapshot(setupSnapshot)
@@ -2107,10 +2122,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         when {
             !installed && setupSnapshot.status == RuntimeSetupStatus.ERROR -> onSetupSnapshot(setupSnapshot)
-            !installed -> _state.update { it.copy(startupStage = StartupStage.SETUP_REQUIRED, startupProgress = 0f) }
-            !preferences.onboardingComplete -> {
-                preferences.runtimeSetupComplete = true
-                _state.update { it.copy(startupStage = StartupStage.MODEL_SETUP, startupProgress = 1f) }
+            !installed -> {
+                // Everything installs automatically: all agents, the Ubuntu runtime and every toolchain.
+                _state.update {
+                    it.copy(
+                        selectedDevStacks = DevStack.entries.toSet(),
+                        startupStage = StartupStage.SETUP_REQUIRED,
+                        startupProgress = 0f,
+                    )
+                }
+                val freeBytes = withContext(Dispatchers.IO) {
+                    runCatching { android.os.StatFs(getApplication<Application>().filesDir.path).availableBytes }
+                        .getOrDefault(0L)
+                }
+                if (freeBytes in 1 until MIN_SETUP_BYTES) {
+                    _state.update {
+                        it.copy(
+                            startupStage = StartupStage.ERROR,
+                            startupError = str(R.string.vm_setup_storage_low, MIN_SETUP_BYTES / (1024L * 1024L)),
+                            startupErrorIsOffline = false,
+                        )
+                    }
+                } else {
+                    startRuntimeSetup()
+                }
             }
             else -> initializeRuntime()
         }
@@ -2181,18 +2216,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             installedAgentVersions = installedAgents,
                         )
                     }
-                    if (preferences.onboardingComplete) {
-                        initializeRuntime()
-                    } else {
-                        _state.update {
-                            it.copy(
-                                startupStage = StartupStage.MODEL_SETUP,
-                                startupProgress = 1f,
-                                startupBytes = null,
-                                startupIndeterminate = false,
-                            )
-                        }
-                    }
+                    // Chat opens straight away; provider keys are added from inside the chat.
+                    preferences.onboardingComplete = true
+                    _state.update { it.copy(onboardingComplete = true) }
+                    initializeRuntime()
                 }
             }
             RuntimeSetupStatus.ERROR -> _state.update {
