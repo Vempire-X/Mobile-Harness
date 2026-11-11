@@ -89,7 +89,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.jarves.mh.R
 import com.jarves.mh.ui.theme.AppThemeMode
+import com.jarves.mh.ui.components.PocketIconTile
+import com.jarves.mh.ui.components.PocketStatusChip
 import com.jarves.mh.ui.theme.PocketGreen
+import com.jarves.mh.ui.theme.PocketMono
 import com.jarves.mh.ui.theme.PocketOrange
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -188,20 +191,15 @@ fun TerminalScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(PocketOrange.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Default.Terminal, contentDescription = null, tint = PocketOrange, modifier = Modifier.size(18.dp))
-                        }
-                        Spacer(Modifier.width(11.dp))
+                        PocketIconTile(Icons.Default.Terminal, size = 36.dp, corner = 12.dp, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text(subtitle, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                            Text(subtitle, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
                         if (isRunning) {
+                            PocketStatusChip(text = "RUN", tint = MaterialTheme.colorScheme.primary, filled = true)
+                            Spacer(Modifier.width(6.dp))
                             (onStop ?: onInterrupt)?.let { stop ->
                                 TerminalStopChip(onClick = stop)
                                 Spacer(Modifier.width(4.dp))
@@ -226,28 +224,13 @@ fun TerminalScreen(
                     modifier = Modifier.padding(top = 8.dp),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                                        shape = RoundedCornerShape(9.dp),
-                                    )
-                                    .border(
-                                        width = 1.dp,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f),
-                                        shape = RoundedCornerShape(9.dp),
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Terminal,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(17.dp),
-                                )
-                            }
-                            Spacer(Modifier.width(10.dp))
+                            PocketIconTile(
+                                Icons.Default.Terminal,
+                                size = 36.dp,
+                                corner = 12.dp,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                                 Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -294,16 +277,25 @@ fun TerminalScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     quickCommands.forEach { cmd ->
-                        AssistChip(
+                        Surface(
                             onClick = { onRun(cmd) },
-                            label = {
-                                Text(
-                                    cmd,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                )
-                            },
-                        )
+                            shape = RoundedCornerShape(11.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            tonalElevation = 0.dp,
+                        ) {
+                            Text(
+                                cmd,
+                                fontFamily = PocketMono,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                            )
+                        }
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
@@ -315,7 +307,7 @@ fun TerminalScreen(
                 AppThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
             // Neutral console background in light mode; the theme surface is tinted orange.
-            val terminalBg = if (isDark) Color(0xFF090D14) else Color(0xFFF6F8FA)
+            val terminalBg = if (isDark) Color(0xFF070A10) else Color(0xFFFBFCFE)
             val promptGreen = if (isDark) PocketGreen else Color(0xFF0D7A3E)
             val commandTextColor = if (isDark) Color(0xFFF0F6FC) else MaterialTheme.colorScheme.onSurface
             val outputTextColor = if (isDark) Color(0xFFC9D1D9) else MaterialTheme.colorScheme.onSurface
@@ -326,16 +318,20 @@ fun TerminalScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .border(1.dp, if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 color = terminalBg,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                shadowElevation = if (isDark) 0.dp else 2.dp,
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(terminalScrollState)
-                        .padding(14.dp),
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SelectionContainer {
@@ -343,7 +339,7 @@ fun TerminalScreen(
                             if (lines.isEmpty()) {
                                 Text(
                                     stringResource(R.string.workspace_terminal_ready),
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = PocketMono,
                                     fontSize = 12.sp,
                                     color = emptyStateColor,
                                 )
@@ -355,7 +351,7 @@ fun TerminalScreen(
                                     if (item.output.isNotEmpty()) {
                                         Text(
                                             text = sanitizeTerminalOutput(item.output),
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = PocketMono,
                                             fontSize = 12.sp,
                                             lineHeight = 18.sp,
                                             color = if (item.exitCode != 0) MaterialTheme.colorScheme.error else outputTextColor,
@@ -372,7 +368,7 @@ fun TerminalScreen(
                             if (liveOutput.isNotBlank()) {
                                 Text(
                                     sanitizeTerminalOutput(liveOutput),
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = PocketMono,
                                     fontSize = 12.sp,
                                     lineHeight = 18.sp,
                                     color = outputTextColor,
@@ -440,7 +436,7 @@ fun TerminalScreen(
                             visualTransformation = prefixVisualTransformation,
                             cursorBrush = SolidColor(promptGreen),
                             textStyle = androidx.compose.ui.text.TextStyle(
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = PocketMono,
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -506,31 +502,36 @@ private fun TerminalKeyButton(
     fixedWidth: Boolean = false,
     onClick: () -> Unit,
 ) {
-    androidx.compose.material3.OutlinedButton(
+    val accent = MaterialTheme.colorScheme.primary
+    Surface(
         onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        modifier = Modifier.height(34.dp).then(if (fixedWidth) Modifier.width(78.dp) else Modifier),
-        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-            containerColor = if (active) PocketOrange.copy(alpha = 0.18f) else Color.Transparent,
-            contentColor = if (active) PocketOrange else MaterialTheme.colorScheme.onSurface,
-        ),
+        shape = RoundedCornerShape(11.dp),
+        color = if (active) accent.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceContainerHigh,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (active) PocketOrange else MaterialTheme.colorScheme.outlineVariant,
+            if (active) accent.copy(alpha = 0.8f) else MaterialTheme.colorScheme.outlineVariant,
         ),
+        tonalElevation = 0.dp,
+        modifier = Modifier
+            .height(38.dp)
+            .then(if (fixedWidth) Modifier.width(80.dp) else Modifier),
     ) {
-        Text(
-            if (active) "$label ✓" else label,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
-            maxLines = 1,
-        )
+        Box(Modifier.padding(horizontal = 12.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                fontFamily = PocketMono,
+                fontSize = 12.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                color = if (active) accent else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+        }
     }
 }
 
 @Composable
 private fun TerminalIconKeyButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
+    IconButton(onClick = onClick, modifier = Modifier.size(40.dp)) {
         Icon(icon, contentDescription = description, modifier = Modifier.size(18.dp))
     }
 }
@@ -552,7 +553,7 @@ private fun TerminalCommandPrompt(promptPath: String, command: String, isDark: B
     Text(
         text = promptText,
         modifier = Modifier.fillMaxWidth(),
-        fontFamily = FontFamily.Monospace,
+        fontFamily = PocketMono,
         fontSize = 12.sp,
         lineHeight = 18.sp,
         softWrap = true,
@@ -567,9 +568,13 @@ private fun TerminalStopChip(onClick: () -> Unit) {
         shape = CircleShape,
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.error.copy(alpha = 0.45f),
+        ),
     ) {
         Row(
-            modifier = Modifier.padding(start = 8.dp, end = 11.dp, top = 5.dp, bottom = 5.dp),
+            modifier = Modifier.padding(start = 9.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(15.dp))
