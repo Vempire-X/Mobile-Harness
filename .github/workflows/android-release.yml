@@ -36,8 +36,14 @@ jobs:
       # pinned NDK/CMake here keeps the native PRoot build reproducible.
       - name: Install NDK, CMake and platform packages
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install \
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager_bin="$(ls -1 "$sdk_root"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)"
+          if [ -z "$sdkmanager_bin" ]; then
+            echo "sdkmanager not found under $sdk_root" >&2
+            exit 1
+          fi
+          yes | "$sdkmanager_bin" --licenses > /dev/null || true
+          "$sdkmanager_bin" --install \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
