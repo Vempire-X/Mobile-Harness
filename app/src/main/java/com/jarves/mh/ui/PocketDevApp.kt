@@ -7281,7 +7281,7 @@ private fun ChatTab(
                             Spacer(Modifier.weight(1f))
 
                             var attachMenuOpen by remember { mutableStateOf(false) }
-                            Box {
+                            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                                 Surface(
                                     onClick = { attachMenuOpen = true },
                                     enabled = pendingAttachments.size < 5,
@@ -7340,15 +7340,7 @@ private fun ChatTab(
                             if (!isRunning || canSend) {
                                 Box(
                                     modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (canSend) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceVariant
-                                            },
-                                        )
+                                        .size(48.dp)
                                         .clickable(enabled = canSend) {
                                             if (canSend) {
                                                 onSend(prompt)
@@ -7357,16 +7349,30 @@ private fun ChatTab(
                                         },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowUpward,
-                                        contentDescription = stringResource(R.string.chat_send),
-                                        tint = if (canSend) {
-                                            MaterialTheme.colorScheme.onPrimary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                        },
-                                        modifier = Modifier.size(19.dp),
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (canSend) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                                },
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowUpward,
+                                            contentDescription = stringResource(R.string.chat_send),
+                                            tint = if (canSend) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            },
+                                            modifier = Modifier.size(19.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
