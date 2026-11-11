@@ -49,7 +49,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -59,6 +58,7 @@ private sealed interface MarkdownBlock {
     data class BulletItem(val depth: Int, val text: String) : MarkdownBlock
     data class NumberedItem(val number: String, val text: String) : MarkdownBlock
     data class BlockQuote(val text: String) : MarkdownBlock
+    data class Table(val header: List<String>, val rows: List<List<String>>) : MarkdownBlock
     object HorizontalRule : MarkdownBlock
     data class Paragraph(val text: String) : MarkdownBlock
 }
@@ -80,6 +80,7 @@ fun MarkdownText(
                 is MarkdownBlock.BulletItem -> BulletBlock(block, color)
                 is MarkdownBlock.NumberedItem -> NumberedBlock(block, color)
                 is MarkdownBlock.BlockQuote -> QuoteBlock(block)
+                is MarkdownBlock.Table -> TableBlock(block)
                 is MarkdownBlock.HorizontalRule -> HorizontalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     modifier = Modifier.padding(vertical = 4.dp),
@@ -123,7 +124,7 @@ private fun BulletBlock(item: MarkdownBlock.BulletItem, color: Color) {
             modifier = Modifier
                 .padding(top = 8.dp, end = 8.dp)
                 .size(5.dp)
-                .background(PocketOrange, CircleShape),
+                .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape),
         )
         Text(
             text = formatInlineMarkdown(item.text),
@@ -142,7 +143,10 @@ private fun NumberedBlock(item: MarkdownBlock.NumberedItem, color: Color) {
     ) {
         Text(
             text = item.number,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = PocketOrange),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            ),
             modifier = Modifier.padding(end = 6.dp),
         )
         Text(
@@ -168,7 +172,7 @@ private fun QuoteBlock(quote: MarkdownBlock.BlockQuote) {
             modifier = Modifier
                 .width(3.dp)
                 .height(24.dp)
-                .background(PocketOrange, RoundedCornerShape(2.dp)),
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)),
         )
         Spacer(Modifier.width(10.dp))
         Text(
@@ -182,6 +186,43 @@ private fun QuoteBlock(quote: MarkdownBlock.BlockQuote) {
 }
 
 @Composable
+private fun TableBlock(table: MarkdownBlock.Table) {
+    val columnCount = maxOf(table.header.size, table.rows.maxOfOrNull { it.size } ?: 0)
+    if (columnCount == 0) return
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            table.header.forEach { cell ->
+                Text(
+                    text = formatInlineMarkdown(cell),
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        table.rows.forEach { row ->
+            Row(Modifier.fillMaxWidth()) {
+                for (index in 0 until columnCount) {
+                    Text(
+                        text = formatInlineMarkdown(row.getOrElse(index) { "" }),
+                        modifier = Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        }
+    }
+}
+
+@Composable
 private fun CodeSnippetBlock(block: MarkdownBlock.CodeBlock, onRunCode: ((String) -> Unit)?) {
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
@@ -189,16 +230,16 @@ private fun CodeSnippetBlock(block: MarkdownBlock.CodeBlock, onRunCode: ((String
 
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF14171E),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, Color(0xFF2A2E39), RoundedCornerShape(12.dp)),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
     ) {
         Column {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF1C202B))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -220,7 +261,7 @@ private fun CodeSnippetBlock(block: MarkdownBlock.CodeBlock, onRunCode: ((String
                             Icon(
                                 Icons.Default.PlayArrow,
                                 contentDescription = stringResource(R.string.ws_md_run_in_terminal),
-                                tint = PocketOrange,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -239,7 +280,7 @@ private fun CodeSnippetBlock(block: MarkdownBlock.CodeBlock, onRunCode: ((String
                         Icon(
                             imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
                             contentDescription = stringResource(R.string.ws_md_copy_code),
-                            tint = if (copied) PocketOrange else Color(0xFF9AA0A6),
+                            tint = if (copied) MaterialTheme.colorScheme.primary else Color(0xFF9AA0A6),
                             modifier = Modifier.size(16.dp),
                         )
                     }
@@ -266,7 +307,7 @@ private fun CodeSnippetBlock(block: MarkdownBlock.CodeBlock, onRunCode: ((String
 @Composable
 private fun formatInlineMarkdown(text: String): AnnotatedString {
     val codeBg = MaterialTheme.colorScheme.surfaceVariant
-    val codeColor = PocketOrange
+    val codeColor = MaterialTheme.colorScheme.primary
     val primaryColor = MaterialTheme.colorScheme.primary
 
     return remember(text, codeBg, codeColor, primaryColor) {
@@ -388,6 +429,11 @@ private fun formatInlineMarkdown(text: String): AnnotatedString {
     }
 }
 
+private val tableSeparatorRegex = Regex("^:?-+:?$")
+
+private fun splitTableRow(line: String): List<String> =
+    line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+
 private fun parseMarkdown(raw: String): List<MarkdownBlock> {
     val lines = raw.lines()
     val blocks = mutableListOf<MarkdownBlock>()
@@ -395,6 +441,21 @@ private fun parseMarkdown(raw: String): List<MarkdownBlock> {
     var codeLang = ""
     val codeLines = mutableListOf<String>()
     val currentParagraphLines = mutableListOf<String>()
+    var pendingHeader: List<String>? = null
+    var tableHeader: List<String>? = null
+    val tableRows = mutableListOf<List<String>>()
+
+    fun flushTable() {
+        val header = tableHeader
+        if (header != null) {
+            blocks.add(MarkdownBlock.Table(header, tableRows.toList()))
+        } else {
+            pendingHeader?.let { row -> blocks.add(MarkdownBlock.Paragraph(row.joinToString(" | "))) }
+        }
+        tableHeader = null
+        pendingHeader = null
+        tableRows.clear()
+    }
 
     fun flushParagraph() {
         if (currentParagraphLines.isNotEmpty()) {
@@ -427,6 +488,28 @@ private fun parseMarkdown(raw: String): List<MarkdownBlock> {
             codeLines.add(line)
             continue
         }
+
+        if (trimmed.startsWith("|")) {
+            val cells = splitTableRow(trimmed)
+            when {
+                tableHeader != null -> tableRows.add(cells)
+                pendingHeader == null -> {
+                    flushParagraph()
+                    pendingHeader = cells
+                }
+                cells.isNotEmpty() && cells.all { it.matches(tableSeparatorRegex) } -> {
+                    tableHeader = pendingHeader
+                    pendingHeader = null
+                }
+                else -> {
+                    flushTable()
+                    flushParagraph()
+                    pendingHeader = cells
+                }
+            }
+            continue
+        }
+        if (tableHeader != null || pendingHeader != null) flushTable()
 
         if (trimmed.isEmpty()) {
             flushParagraph()
@@ -483,6 +566,7 @@ private fun parseMarkdown(raw: String): List<MarkdownBlock> {
     if (inCodeBlock) {
         blocks.add(MarkdownBlock.CodeBlock(codeLang, codeLines.joinToString("\n")))
     }
+    flushTable()
     flushParagraph()
 
     return blocks
