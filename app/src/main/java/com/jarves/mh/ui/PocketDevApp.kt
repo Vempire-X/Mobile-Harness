@@ -191,6 +191,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextRange
@@ -262,7 +263,18 @@ import com.jarves.mh.network.ConnectionValidation
 import com.jarves.mh.network.DiscoveredModel
 import com.jarves.mh.network.ModelDiscoveryResult
 import com.jarves.mh.network.GitHubRepository
+import com.jarves.mh.ui.components.PocketFloatingNav
+import com.jarves.mh.ui.components.PocketGlassCard
+import com.jarves.mh.ui.components.PocketIconTile
+import com.jarves.mh.ui.components.PocketNavItem
+import com.jarves.mh.ui.components.PocketPrimaryButton
+import com.jarves.mh.ui.components.PocketSecondaryButton
+import com.jarves.mh.ui.components.PocketSectionHeader
+import com.jarves.mh.ui.components.PocketStatusChip
+import com.jarves.mh.ui.components.PocketStepProgress
 import com.jarves.mh.ui.theme.PocketBlue
+import com.jarves.mh.ui.theme.PocketGradients
+import com.jarves.mh.ui.theme.PocketMono
 import com.jarves.mh.ui.theme.PocketGreen
 import com.jarves.mh.ui.theme.PocketOrange
 import java.io.ByteArrayInputStream
@@ -521,9 +533,12 @@ private fun AntigravityOnboardingScreen(
             when (state.antigravityAuth.status) {
                 AntigravityAuthStatus.SIGNED_OUT, AntigravityAuthStatus.ERROR -> {
                     state.antigravityAuth.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Button(onClick = onStartLogin, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                        Text(stringResource(R.string.agent_google_signin))
-                    }
+                    PocketPrimaryButton(
+                        text = stringResource(R.string.agent_google_signin),
+                        onClick = onStartLogin,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 54.dp,
+                    )
                 }
                 AntigravityAuthStatus.STARTING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -567,9 +582,13 @@ private fun AntigravityOnboardingScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
-                    Button(onClick = onContinue, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                        Text(stringResource(R.string.action_continue))
-                    }
+                    PocketPrimaryButton(
+                        text = stringResource(R.string.action_continue),
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
+                        onClick = onContinue,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 54.dp,
+                    )
                 }
             }
             OnboardingSecondaryActions(onChangeAgent = { showAgentPicker = true }, onSkip = onSkip)
@@ -714,23 +733,13 @@ private fun InitialLanguageSetupScreen(
             }
 
             Spacer(Modifier.height(24.dp))
-            Button(
+            PocketPrimaryButton(
+                text = stringResource(R.string.action_continue),
+                icon = Icons.AutoMirrored.Filled.ArrowForward,
                 onClick = onContinue,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Text(
-                    stringResource(R.string.action_continue),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                )
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+                modifier = Modifier.fillMaxWidth(),
+                height = 54.dp,
+            )
             Spacer(Modifier.height(28.dp))
         }
     }
@@ -2080,13 +2089,26 @@ private fun StartupLoadingScreen(
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BrandMark(
-                Modifier.graphicsLayer {
-                    scaleX = logoPulse
-                    scaleY = logoPulse
-                    alpha = 0.82f + ((logoPulse - 0.96f) / 0.08f) * 0.18f
-                },
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .size(190.dp)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(PocketOrange.copy(alpha = 0.20f), Color.Transparent),
+                                radius = 320f,
+                            ),
+                            CircleShape,
+                        ),
+                )
+                BrandMark(
+                    Modifier.graphicsLayer {
+                        scaleX = logoPulse
+                        scaleY = logoPulse
+                        alpha = 0.82f + ((logoPulse - 0.96f) / 0.08f) * 0.18f
+                    },
+                )
+            }
             Spacer(Modifier.height(22.dp))
             AnimatedContent(
                 targetState = messages[messageIndex],
@@ -2495,35 +2517,62 @@ private fun RootScreenHost(
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (!keyboardVisible) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                RootScreen.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = screen == tab,
-                        onClick = { screen = tab },
-                        icon = {
-                            BadgedBox(
-                                badge = { if (tab == RootScreen.SETTINGS && !state.backupFeatureSeen) Badge() },
-                            ) { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) }
+            if (!keyboardVisible) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
+                            ),
+                        )
+                        .navigationBarsPadding(),
+                ) {
+                    PocketFloatingNav(
+                        items = RootScreen.entries.map {
+                            PocketNavItem(
+                                key = it,
+                                label = stringResource(it.labelRes),
+                                icon = it.icon,
+                            )
                         },
-                        label = { Text(stringResource(tab.labelRes), fontSize = 11.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        ),
+                        selectedKey = screen,
+                        onSelect = { key -> (key as? RootScreen)?.let { screen = it } },
+                        showBadge = { key -> key == RootScreen.SETTINGS && !state.backupFeatureSeen },
                     )
                 }
             }
         },
         floatingActionButton = {
             if (screen == RootScreen.PROJECTS && !keyboardVisible && !showQuickTerminal) {
-                ExtendedFloatingActionButton(
+                Surface(
                     onClick = { showQuickTerminal = true },
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = null) },
-                    text = { Text(stringResource(R.string.projects_terminal), fontWeight = FontWeight.SemiBold) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                )
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Transparent,
+                    shadowElevation = 16.dp,
+                    tonalElevation = 0.dp,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .background(PocketGradients.accent, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.Terminal,
+                            contentDescription = null,
+                            tint = Color(0xFF2A1206),
+                            modifier = Modifier.size(19.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.projects_terminal),
+                            color = Color(0xFF2A1206),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
             }
         },
     ) { padding ->
@@ -2896,11 +2945,22 @@ private fun DshApiProtocolPicker(selected: String, onSelected: (String) -> Unit)
 
 @Composable
 private fun StepDots(step: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        repeat(3) { index ->
-            Box(
-                Modifier.height(5.dp).weight(1f)
-                    .background(if (index <= step) PocketOrange else MaterialTheme.colorScheme.outlineVariant, CircleShape),
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PocketStepProgress(currentStep = step, totalSteps = 3)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.provider_step_of, step.coerceIn(1, 3), 3),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 1.1.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                "Mobile Harness",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 0.6.sp,
             )
         }
     }
@@ -2928,9 +2988,14 @@ private fun DeviceCheckStep(context: Context, onContinue: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Button(onClick = onContinue, enabled = compatible, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text(stringResource(if (compatible) R.string.provider_continue else R.string.runtime_setup_device_not_supported))
-        }
+        PocketPrimaryButton(
+            text = stringResource(if (compatible) R.string.provider_continue else R.string.runtime_setup_device_not_supported),
+            icon = Icons.AutoMirrored.Filled.ArrowForward,
+            onClick = onContinue,
+            enabled = compatible,
+            modifier = Modifier.fillMaxWidth(),
+            height = 54.dp,
+        )
     }
 }
 
@@ -3028,19 +3093,13 @@ private fun ProviderChoiceStep(
                 fontSize = 11.sp,
             )
         }
-        Button(
+        PocketPrimaryButton(
+            text = stringResource(R.string.provider_continue),
+            icon = Icons.AutoMirrored.Filled.ArrowForward,
             onClick = onContinue,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(52.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-        ) {
-            Text(stringResource(R.string.provider_continue), fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(8.dp))
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(18.dp))
-        }
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            height = 54.dp,
+        )
         OnboardingSecondaryActions(
             onChangeAgent = onChangeAgent,
             onSkip = onSkip,
@@ -3573,13 +3632,14 @@ private fun ClaudeSubscriptionCredentialsStep(
             }
         }
         item {
-            Button(
+            PocketPrimaryButton(
+                text = stringResource(R.string.provider_save_continue),
+                icon = Icons.Default.Check,
                 onClick = onSave,
                 enabled = hasToken,
-                modifier = Modifier.fillMaxWidth().height(54.dp),
-            ) {
-                Text(stringResource(R.string.provider_save_continue))
-            }
+                modifier = Modifier.fillMaxWidth(),
+                height = 54.dp,
+            )
         }
         item {
             OnboardingSecondaryActions(onChangeAgent = onChangeAgent, onSkip = onSkip)
@@ -3646,71 +3706,76 @@ private fun ProjectsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(stringResource(R.string.projects_hero_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(stringResource(R.string.projects_hero_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = onCreateQuickProject,
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Chat,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp),
+                PocketGlassCard(accent = PocketOrange, shape = RoundedCornerShape(24.dp)) {
+                    Box(Modifier.fillMaxWidth()) {
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(PocketOrange.copy(alpha = 0.18f), Color.Transparent),
+                                        radius = 620f,
+                                    ),
+                                ),
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.projects_quick_project),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { showCreate = true },
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.projects_new_project),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
+                        Column(Modifier.padding(20.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PocketIconTile(Icons.Default.Terminal, size = 46.dp, corner = 15.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        stringResource(R.string.projects_hero_title),
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        stringResource(R.string.projects_hero_desc),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        lineHeight = 17.sp,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            ApiStatusChip(state = state, onSettings = onSettings, onPing = onPing)
+                            Spacer(Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                PocketPrimaryButton(
+                                    text = stringResource(R.string.projects_new_project),
+                                    icon = Icons.Default.Add,
+                                    onClick = { showCreate = true },
+                                    modifier = Modifier.weight(1.2f),
+                                    height = 50.dp,
+                                )
+                                PocketSecondaryButton(
+                                    text = stringResource(R.string.projects_quick_project),
+                                    icon = Icons.Default.Chat,
+                                    onClick = onCreateQuickProject,
+                                    modifier = Modifier.weight(1f),
+                                    height = 50.dp,
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
                 val isImportExpanded = importExpanded || state.projectImporting || state.gitCloneRunning
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
-                ) {
+                PocketGlassCard(shape = RoundedCornerShape(20.dp)) {
                     Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { importExpanded = !importExpanded }
-                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                                .padding(horizontal = 16.dp, vertical = 15.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            PocketIconTile(Icons.Default.Download, size = 34.dp, corner = 11.dp, tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(stringResource(R.string.projects_bring_existing), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                                 Text(
@@ -3808,53 +3873,35 @@ private fun ProjectsScreen(
                     }
                 }
             }
-            item { Text(stringResource(R.string.projects_your_projects), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(R.string.projects_your_projects),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (projects.isNotEmpty()) {
+                        PocketStatusChip(
+                            text = projects.size.toString(),
+                            tint = MaterialTheme.colorScheme.secondary,
+                            icon = Icons.Default.Folder,
+                        )
+                    }
+                }
+            }
             if (projects.isEmpty()) {
                 item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 10.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(28.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = PocketOrange.copy(alpha = 0.15f),
-                                modifier = Modifier.size(56.dp),
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.Folder,
-                                        contentDescription = null,
-                                        tint = PocketOrange,
-                                        modifier = Modifier.size(28.dp),
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                stringResource(R.string.projects_empty_title),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                            )
-                            Text(
-                                stringResource(R.string.projects_empty_desc),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                lineHeight = 20.sp,
-                            )
-                        }
-                    }
+                    PocketEmptyState(
+                        icon = Icons.Default.Folder,
+                        title = stringResource(R.string.projects_empty_title),
+                        description = stringResource(R.string.projects_empty_desc),
+                        actionText = stringResource(R.string.projects_new_project),
+                        onAction = { showCreate = true },
+                    )
                 }
             } else {
                 items(projects, key = { it.id }) { project ->
@@ -4228,29 +4275,41 @@ private fun ProjectCard(
     var showRename by rememberSaveable(project.id) { mutableStateOf(false) }
     var showDelete by rememberSaveable(project.id) { mutableStateOf(false) }
     var renameText by rememberSaveable(project.id) { mutableStateOf(project.name) }
-    Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Icon(
-                    if (project.type == ProjectType.ANDROID) Icons.Default.Android else Icons.Default.Folder,
-                    null,
-                    Modifier.padding(13.dp),
-                    tint = if (project.type == ProjectType.ANDROID) PocketGreen else PocketOrange,
-                )
-            }
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f)) {
+    val cardAccent = when {
+        taskRunning || terminalRunning || buildRunning -> MaterialTheme.colorScheme.primary
+        project.type == ProjectType.ANDROID -> PocketGreen
+        else -> null
+    }
+    PocketGlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        accent = cardAccent,
+        onClick = onOpen,
+    ) {
+        Row(
+            Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PocketIconTile(
+                icon = if (project.type == ProjectType.ANDROID) Icons.Default.Android else Icons.Default.Folder,
+                tint = if (project.type == ProjectType.ANDROID) PocketGreen else PocketOrange,
+                size = 46.dp,
+                corner = 15.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         project.name,
                         modifier = Modifier.weight(1f, fill = false),
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (taskRunning || terminalRunning || buildRunning) {
                         Spacer(Modifier.width(8.dp))
-                        CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(5.dp))
                         Text(
                             when {
@@ -4260,7 +4319,7 @@ private fun ProjectCard(
                             },
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -4269,9 +4328,28 @@ private fun ProjectCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text("/workspace/${project.slug}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                Text("${project.language} · ${project.localizedUpdatedAt()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text(
+                    "/workspace/${project.slug}",
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+                    fontSize = 11.sp,
+                    fontFamily = PocketMono,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    PocketStatusChip(
+                        text = project.language.ifBlank { stringResource(R.string.project_type_general) },
+                        tint = MaterialTheme.colorScheme.secondary,
+                    )
+                    PocketStatusChip(
+                        text = project.localizedUpdatedAt(),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        icon = Icons.Default.History,
+                    )
+                }
             }
             Box {
                 IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.ws_project_options)) }
@@ -4750,22 +4828,34 @@ private fun WorkspaceScreen(
             )
         },
         bottomBar = {
-            if (!keyboardVisible) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                WorkspaceTab.entries.filter { it != WorkspaceTab.CHANGES }.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = {
+            if (!keyboardVisible) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, MaterialTheme.colorScheme.background.copy(alpha = 0.92f)),
+                            ),
+                        )
+                        .navigationBarsPadding(),
+                ) {
+                    PocketFloatingNav(
+                        items = WorkspaceTab.entries
+                            .filter { it != WorkspaceTab.CHANGES }
+                            .map { tab ->
+                                PocketNavItem(
+                                    key = tab,
+                                    label = stringResource(tab.labelRes),
+                                    icon = tab.icon,
+                                )
+                            },
+                        selectedKey = selectedTab,
+                        onSelect = { key ->
+                            val tab = key as? WorkspaceTab ?: return@PocketFloatingNav
                             selectedTab = tab
                             if (tab == WorkspaceTab.FILES) onRefreshFiles()
                             if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
                         },
-                        icon = { Icon(tab.icon, stringResource(tab.labelRes)) },
-                        label = { Text(stringResource(tab.labelRes), fontSize = 10.sp) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        ),
                     )
                 }
             }
@@ -7456,21 +7546,17 @@ private fun EmptyState(icon: ImageVector, title: String, body: String) {
 
 @Composable
 private fun BrandMark(modifier: Modifier = Modifier, compact: Boolean = false) {
-    val size = if (compact) 32.dp else 50.dp
-    val iconSize = if (compact) 17.dp else 24.dp
-    val cornerRadius = if (compact) 9.dp else 14.dp
-    val primary = MaterialTheme.colorScheme.primary
+    val size = if (compact) 34.dp else 56.dp
+    val iconSize = if (compact) 18.dp else 27.dp
+    val cornerRadius = if (compact) 11.dp else 18.dp
 
     Box(
         modifier = modifier
             .size(size)
-            .background(
-                color = primary.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(cornerRadius),
-            )
+            .background(PocketGradients.accent, RoundedCornerShape(cornerRadius))
             .border(
                 width = 1.dp,
-                color = primary.copy(alpha = 0.32f),
+                color = Color.White.copy(alpha = 0.22f),
                 shape = RoundedCornerShape(cornerRadius),
             ),
         contentAlignment = Alignment.Center,
@@ -7479,7 +7565,7 @@ private fun BrandMark(modifier: Modifier = Modifier, compact: Boolean = false) {
             imageVector = Icons.Default.Terminal,
             contentDescription = "Mobile Harness",
             modifier = Modifier.size(iconSize),
-            tint = primary,
+            tint = Color(0xFF2A1206),
         )
     }
 }
