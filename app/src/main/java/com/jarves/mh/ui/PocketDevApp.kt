@@ -26,6 +26,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.MutableTransitionState
@@ -116,6 +117,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
@@ -126,6 +128,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CreateNewFolder
@@ -292,6 +295,7 @@ import com.jarves.mh.ui.theme.PocketBlue
 import com.jarves.mh.ui.theme.PocketGradients
 import com.jarves.mh.ui.theme.PocketMono
 import com.jarves.mh.ui.theme.PocketGreen
+import com.jarves.mh.ui.theme.Dimens
 import com.jarves.mh.ui.theme.PocketOrange
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.delay
@@ -340,6 +344,16 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     BackupRestartEffect()
     var workspaceOverlay by rememberSaveable { mutableStateOf(WorkspaceOverlay.NONE) }
     var rootScreen by rememberSaveable { mutableStateOf(RootScreen.PROJECTS) }
+    var requestedWorkspaceTab by remember { mutableStateOf<WorkspaceTab?>(null) }
+    var keyRetryPending by remember { mutableStateOf(false) }
+    // Saving a key makes the provider usable again, so re-run the message that failed.
+    LaunchedEffect(state.provider.hasSecret, keyRetryPending) {
+        if (keyRetryPending && state.provider.hasSecret) {
+            keyRetryPending = false
+            val lastPrompt = state.messages.lastOrNull { it.fromUser }?.text
+            if (!lastPrompt.isNullOrBlank()) viewModel.sendPrompt(lastPrompt)
+        }
+    }
     // Chat-first launch: open the most recently updated project straight into its conversation
     // instead of stopping at the projects list. Runs once per process; the user returning to the
     // projects screen afterwards is not overridden.
@@ -393,6 +407,9 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                     onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
                     onBack = { workspaceOverlay = WorkspaceOverlay.NONE },
+                    onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
+                    onUpdateAllPackages = viewModel::updateAllPackages,
+                    packagesBusy = state.agentUpdating != null || state.agentUpdatesChecking,
                 )
             } else {
                 AgentScreen(
@@ -519,10 +536,25 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         state.activeProject != null && state.workspaceVisible -> WorkspaceScreen(
             state = state,
             onBack = viewModel::closeProject,
+            requestedTab = requestedWorkspaceTab,
+            onRequestedTabHandled = { requestedWorkspaceTab = null },
             onOpenProjects = { rootScreen = RootScreen.PROJECTS; viewModel.closeProject() },
             onOpenSettings = { workspaceOverlay = WorkspaceOverlay.SETTINGS },
-            onOpenAgent = { workspaceOverlay = WorkspaceOverlay.AGENT },
-            onSetReasoningEffort = viewModel::setAntigravityEffort,
+            onAddApiKey = {
+                keyRetryPending = true
+                workspaceOverlay = WorkspaceOverlay.AGENT
+            },
+            onSelectChatModel = { model ->
+                if (state.agentKind == AgentKind.ANTIGRAVITY) {
+                    if (model != null) viewModel.setAntigravityModel(model)
+                } else {
+                    val target = model ?: state.provider.kind.defaultModel
+                    viewModel.updateProvider(
+                        state.provider.copy(model = target),
+                        viewModel.getSavedApiKey(state.provider.kind),
+                    )
+                }
+            },
             onOpenProject = viewModel::openProject,
             onRenameProject = viewModel::renameProject,
             onDeleteProject = viewModel::deleteProject,
@@ -589,7 +621,14 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
         )
-        else -> RootScreenHost(state, viewModel, projectsListState, screen = rootScreen, onScreenChange = { rootScreen = it })
+        else -> RootScreenHost(
+            state = state,
+            viewModel = viewModel,
+            projectsListState = projectsListState,
+            screen = rootScreen,
+            onScreenChange = { rootScreen = it },
+            onRequestWorkspaceTab = { requestedWorkspaceTab = it },
+        )
     }
 }
 
@@ -2604,8 +2643,11 @@ private fun RootScreenHost(
     projectsListState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
     screen: RootScreen,
     onScreenChange: (RootScreen) -> Unit,
+    onRequestWorkspaceTab: (WorkspaceTab) -> Unit = {},
 ) {
     var showQuickTerminal by rememberSaveable { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
     var openBackup by rememberSaveable { mutableStateOf(false) }
 
     if (state.showWhatsNew) {
@@ -2624,45 +2666,63 @@ private fun RootScreenHost(
     val terminalLiveOutput by viewModel.terminalLiveOutput.collectAsStateWithLifecycle()
     val terminalCurrentCommand by viewModel.terminalCurrentCommand.collectAsStateWithLifecycle()
 
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ConversationDrawer(
+                projectName = state.activeProject?.name.orEmpty(),
+                chats = state.projectChats,
+                activeChatId = state.activeChatId,
+                switchingEnabled = !state.isRunning,
+                selected = WorkspaceTab.CHAT,
+                projects = state.projects,
+                activeProjectId = state.activeProject?.id,
+                profileName = state.githubLogin?.takeIf { it.isNotBlank() } ?: "Mobile Harness",
+                onSelectTab = { tab ->
+                    drawerScope.launch { drawerState.close() }
+                    val target = state.activeProject ?: state.projects.maxByOrNull { it.updatedAtMillis }
+                    if (target != null) {
+                        if (tab != WorkspaceTab.CHAT) onRequestWorkspaceTab(tab)
+                        viewModel.openProject(target)
+                    }
+                },
+                onOpenProjects = {
+                    drawerScope.launch { drawerState.close() }
+                    onScreenChange(RootScreen.PROJECTS)
+                },
+                onOpenSettings = {
+                    drawerScope.launch { drawerState.close() }
+                    onScreenChange(RootScreen.SETTINGS)
+                },
+                onCreateChat = {
+                    drawerScope.launch { drawerState.close() }
+                    if (state.activeProject != null) {
+                        viewModel.createChat()
+                    } else {
+                        state.projects.maxByOrNull { it.updatedAtMillis }?.let(viewModel::openProject)
+                    }
+                },
+                onSwitchChat = { chatId ->
+                    drawerScope.launch { drawerState.close() }
+                    if (state.activeProject != null) viewModel.switchChat(chatId)
+                },
+                onOpenProject = { project ->
+                    drawerScope.launch { drawerState.close() }
+                    viewModel.openProject(project)
+                },
+                onRenameProject = { id, name -> viewModel.renameProject(id, name) },
+                onDeleteProject = { id -> viewModel.deleteProject(id) },
+            )
+        },
+    ) {
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButton = {
-            if (screen == RootScreen.PROJECTS && !keyboardVisible && !showQuickTerminal) {
-                Surface(
-                    onClick = { showQuickTerminal = true },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Transparent,
-                    shadowElevation = 16.dp,
-                    tonalElevation = 0.dp,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .background(PocketGradients.accent, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Default.Terminal,
-                            contentDescription = null,
-                            tint = Color(0xFF2A1206),
-                            modifier = Modifier.size(19.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(R.string.projects_terminal),
-                            color = Color(0xFF2A1206),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                        )
-                    }
-                }
-            }
-        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (screen) {
                 RootScreen.PROJECTS -> ProjectsScreen(
                     state = state,
+                    onOpenDrawer = { drawerScope.launch { drawerState.open() } },
                     listState = projectsListState,
                     onOpen = viewModel::openProject,
                     onCreate = viewModel::createProject,
@@ -2769,6 +2829,7 @@ private fun RootScreenHost(
                 compactHeader = true,
             )
         }
+    }
     }
 }
 
@@ -3752,17 +3813,22 @@ private fun ProjectsScreen(
     onPing: () -> Unit,
     onToggleTheme: () -> Unit,
     onInstallUpdate: () -> Unit,
+    onOpenDrawer: () -> Unit = {},
 ) {
-    var showCreate by rememberSaveable { mutableStateOf(false) }
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showUpdateDialog by rememberSaveable { mutableStateOf(false) }
     var showGitDialog by rememberSaveable { mutableStateOf(false) }
     var showGitHubDialog by rememberSaveable { mutableStateOf(false) }
     var importExpanded by rememberSaveable { mutableStateOf(false) }
     var gitUrl by rememberSaveable { mutableStateOf("") }
     var repositorySearch by rememberSaveable { mutableStateOf("") }
-    var name by rememberSaveable { mutableStateOf("") }
-    var androidTemplate by rememberSaveable { mutableStateOf<AndroidTemplate?>(null) }
     val projects = state.projects
+    val visibleProjects = if (searchQuery.isBlank()) {
+        projects
+    } else {
+        projects.filter { it.name.contains(searchQuery.trim(), ignoreCase = true) }
+    }
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         onInstallUpdate()
@@ -3776,8 +3842,23 @@ private fun ProjectsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                modifier = Modifier.padding(top = 8.dp),
-                title = { Row(verticalAlignment = Alignment.CenterVertically) { BrandMark(compact = true); Spacer(Modifier.width(9.dp)); Text("Mobile Harness", fontWeight = FontWeight.Bold) } },
+                title = {
+                    Text(
+                        text = stringResource(R.string.tab_projects),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 19.sp,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, stringResource(R.string.ws_open_menu))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { searchVisible = !searchVisible }) {
+                        Icon(Icons.Default.FilterList, stringResource(R.string.projects_search_hint))
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -3822,27 +3903,6 @@ private fun ProjectsScreen(
                             }
                             Spacer(Modifier.height(14.dp))
                             ApiStatusChip(state = state, onSettings = onSettings, onPing = onPing)
-                            Spacer(Modifier.height(16.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                PocketPrimaryButton(
-                                    text = stringResource(R.string.projects_new_project),
-                                    icon = Icons.Default.Add,
-                                    onClick = { showCreate = true },
-                                    modifier = Modifier.weight(1.2f),
-                                    height = 50.dp,
-                                )
-                                PocketSecondaryButton(
-                                    text = stringResource(R.string.projects_quick_project),
-                                    icon = Icons.Default.Chat,
-                                    onClick = onCreateQuickProject,
-                                    modifier = Modifier.weight(1f),
-                                    height = 50.dp,
-                                )
-                            }
                         }
                     }
                 }
@@ -3967,27 +4027,38 @@ private fun ProjectsScreen(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    if (projects.isNotEmpty()) {
+                    if (visibleProjects.isNotEmpty()) {
                         PocketStatusChip(
-                            text = projects.size.toString(),
+                            text = visibleProjects.size.toString(),
                             tint = MaterialTheme.colorScheme.secondary,
                             icon = Icons.Default.Folder,
                         )
                     }
                 }
             }
-            if (projects.isEmpty()) {
+            if (searchVisible) {
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.projects_search_hint), fontSize = 14.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(Dimens.iconSmall)) },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                }
+            }
+            if (visibleProjects.isEmpty()) {
                 item {
                     PocketEmptyState(
                         icon = Icons.Default.Folder,
-                        title = stringResource(R.string.projects_empty_title),
-                        description = stringResource(R.string.projects_empty_desc),
-                        actionText = stringResource(R.string.projects_new_project),
-                        onAction = { showCreate = true },
+                        title = stringResource(R.string.tab_projects),
+                        description = stringResource(R.string.projects_auto_hint),
                     )
                 }
             } else {
-                items(projects, key = { it.id }) { project ->
+                items(visibleProjects, key = { it.id }) { project ->
                     ProjectCard(
                         project = project,
                         taskRunning = state.isRunning && state.activeProject?.id == project.id,
@@ -4001,71 +4072,6 @@ private fun ProjectsScreen(
             }
         }
     }
-    if (showCreate) AlertDialog(
-        onDismissRequest = { showCreate = false },
-        title = { Text(stringResource(R.string.an_create_project)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.ws_project_name)) }, singleLine = true)
-                Text(stringResource(R.string.project_type), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(
-                        onClick = { androidTemplate = null },
-                        label = { Text(stringResource(R.string.project_type_general)) },
-                        leadingIcon = { if (androidTemplate == null) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.COMPOSE },
-                        label = { Text(stringResource(R.string.project_type_compose)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.COMPOSE) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                    AssistChip(
-                        onClick = { androidTemplate = AndroidTemplate.XML },
-                        label = { Text(stringResource(R.string.project_type_xml)) },
-                        leadingIcon = { if (androidTemplate == AndroidTemplate.XML) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
-                    )
-                }
-                Text(
-                    stringResource(
-                        when (androidTemplate) {
-                            AndroidTemplate.COMPOSE -> R.string.project_type_compose_desc
-                            AndroidTemplate.XML -> R.string.project_type_xml_desc
-                            null -> R.string.project_type_general_desc
-                        },
-                    ),
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (androidTemplate != null) {
-                    Text(
-                        stringResource(R.string.an_template_info, 28, 36),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (name.isNotBlank()) {
-                    Text(
-                        stringResource(R.string.ws_terminal_folder, "/workspace/${projectSlug(name)}"),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    androidTemplate?.let { onCreateAndroid(name, it) } ?: onCreate(name)
-                    showCreate = false
-                    name = ""
-                    androidTemplate = null
-                },
-                enabled = name.isNotBlank(),
-            ) { Text(stringResource(R.string.ws_create)) }
-        },
-        dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
-    )
     if (showGitDialog) AlertDialog(
         onDismissRequest = { if (!state.gitCloneRunning) showGitDialog = false },
         icon = { Icon(Icons.Default.Code, null, tint = PocketOrange) },
@@ -4561,10 +4567,12 @@ private fun ReadOnlyProjectScreen(
 private fun WorkspaceScreen(
     state: AppUiState,
     onBack: () -> Unit,
+    requestedTab: WorkspaceTab? = null,
+    onRequestedTabHandled: () -> Unit = {},
     onOpenProjects: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenAgent: () -> Unit,
-    onSetReasoningEffort: (String) -> Unit,
+    onSelectChatModel: (String?) -> Unit,
+    onAddApiKey: () -> Unit,
     onOpenProject: (Project) -> Unit,
     onRenameProject: (String, String) -> Unit,
     onDeleteProject: (String) -> Unit,
@@ -4671,6 +4679,21 @@ private fun WorkspaceScreen(
     val isAndroidProject = state.androidProjectDetected
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerScope = rememberCoroutineScope()
+    val chatModelOptions = remember(state.agentKind, state.provider.model, state.provider.kind, state.antigravityModels) {
+        val options = if (state.agentKind == AgentKind.ANTIGRAVITY) {
+            state.antigravityModels
+        } else {
+            listOf(state.provider.kind.defaultModel, state.provider.model)
+        }
+        options.filter { it.isNotBlank() }.distinct()
+    }
+    val chatSelectedModel = if (state.agentKind == AgentKind.ANTIGRAVITY) {
+        state.antigravityModel.takeIf { it.isNotBlank() }
+    } else {
+        state.provider.model.takeIf { it.isNotBlank() && it != state.provider.kind.defaultModel }
+    }
+    val chatModelLabel = chatSelectedModel?.substringAfterLast('/')?.take(18)
+        ?: stringResource(R.string.chat_model_auto)
     var pendingAndroidAction by remember { mutableStateOf<AndroidAction?>(null) }
     var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
     var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
@@ -4770,6 +4793,14 @@ private fun WorkspaceScreen(
 
     var selectedTab by rememberSaveable { mutableStateOf(WorkspaceTab.CHAT) }
     var showAndroidBuild by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(requestedTab) {
+        if (requestedTab != null) {
+            selectedTab = requestedTab
+            if (requestedTab == WorkspaceTab.FILES) onRefreshFiles()
+            if (requestedTab == WorkspaceTab.TERMINAL) onTerminalOpened()
+            onRequestedTabHandled()
+        }
+    }
     val activeChat = state.projectChats.firstOrNull { it.id == state.activeChatId }
     val requestAndroidAction: (AndroidAction) -> Unit = { action ->
         val mayInstall = action in setOf(AndroidAction.INSTALL, AndroidAction.RUN, AndroidAction.BUILD_AND_RUN)
@@ -4865,7 +4896,6 @@ private fun WorkspaceScreen(
                 activeChatId = state.activeChatId,
                 switchingEnabled = !state.isRunning,
                 selected = selectedTab,
-                changesCount = state.changes.size,
                 projects = state.projects,
                 activeProjectId = state.activeProject?.id,
                 profileName = state.githubLogin?.takeIf { it.isNotBlank() } ?: "Mobile Harness",
@@ -4882,7 +4912,6 @@ private fun WorkspaceScreen(
                     drawerScope.launch { drawerState.close() }
                     onOpenProjects()
                 },
-                onOpenAgent = onOpenAgent,
                 onOpenSettings = onOpenSettings,
                 onCreateChat = {
                     selectedTab = WorkspaceTab.CHAT
@@ -4947,6 +4976,14 @@ private fun WorkspaceScreen(
                             else Icon(Icons.Default.PlayArrow, stringResource(R.string.ws_build_run_android))
                         }
                     }
+                    IconButton(onClick = { selectedTab = WorkspaceTab.FILES; onRefreshFiles() }) {
+                        Icon(Icons.Default.Description, stringResource(R.string.tab_files))
+                    }
+                    if (state.changes.isNotEmpty()) {
+                        IconButton(onClick = { selectedTab = WorkspaceTab.CHANGES }) {
+                            Icon(Icons.Default.Code, stringResource(R.string.tab_changes))
+                        }
+                    }
                     IconButton(onClick = onCreateChat) { Icon(Icons.Default.Add, stringResource(R.string.ws_new_chat)) }
                     if (state.isRunning) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
                 },
@@ -4994,11 +5031,12 @@ private fun WorkspaceScreen(
                     onSteerFollowUp = onSteerFollowUp,
                     onRemoveFollowUp = onRemoveFollowUp,
                     changes = state.changes,
-                    thinkingEnabled = state.antigravityEffort == "high",
-                    thinkingSupported = state.agentKind == AgentKind.ANTIGRAVITY,
-                    onToggleThinking = {
-                        onSetReasoningEffort(if (state.antigravityEffort == "high") "low" else "high")
-                    },
+                    modelLabel = chatModelLabel,
+                    availableModels = chatModelOptions,
+                    selectedModel = chatSelectedModel,
+                    onSelectModel = onSelectChatModel,
+                    needsApiKey = state.agentKind != AgentKind.ANTIGRAVITY && !state.provider.hasSecret,
+                    onAddApiKey = onAddApiKey,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
@@ -5138,13 +5176,11 @@ private fun ConversationDrawer(
     activeChatId: String?,
     switchingEnabled: Boolean,
     selected: WorkspaceTab,
-    changesCount: Int,
     projects: List<Project>,
     activeProjectId: String?,
     profileName: String,
     onSelectTab: (WorkspaceTab) -> Unit,
     onOpenProjects: () -> Unit,
-    onOpenAgent: () -> Unit,
     onOpenSettings: () -> Unit,
     onCreateChat: () -> Unit,
     onSwitchChat: (String) -> Unit,
@@ -5243,52 +5279,18 @@ private fun ConversationDrawer(
             }
             StaggeredDrawerItem(index = 3) {
                 DrawerItem(
-                    icon = Icons.Default.Description,
-                    label = stringResource(R.string.tab_files),
-                    selected = selected == WorkspaceTab.FILES,
-                    onClick = { onSelectTab(WorkspaceTab.FILES) },
-                )
-            }
-            StaggeredDrawerItem(index = 4) {
-                DrawerItem(
                     icon = Icons.Default.Terminal,
                     label = stringResource(R.string.tab_terminal),
                     selected = selected == WorkspaceTab.TERMINAL,
                     onClick = { onSelectTab(WorkspaceTab.TERMINAL) },
                 )
             }
-            StaggeredDrawerItem(index = 5) {
+            StaggeredDrawerItem(index = 4) {
                 DrawerItem(
                     icon = Icons.Default.Preview,
                     label = stringResource(R.string.tab_preview),
                     selected = selected == WorkspaceTab.PREVIEW,
                     onClick = { onSelectTab(WorkspaceTab.PREVIEW) },
-                )
-            }
-            if (changesCount > 0) {
-                StaggeredDrawerItem(index = 6) {
-                    DrawerItem(
-                        icon = Icons.Default.Code,
-                        label = "${stringResource(R.string.ws_changes_badge)} ($changesCount)",
-                        selected = selected == WorkspaceTab.CHANGES,
-                        onClick = { onSelectTab(WorkspaceTab.CHANGES) },
-                    )
-                }
-            }
-            StaggeredDrawerItem(index = 7) {
-                DrawerItem(
-                    icon = Icons.Default.SmartToy,
-                    label = stringResource(R.string.tab_agent),
-                    selected = false,
-                    onClick = onOpenAgent,
-                )
-            }
-            StaggeredDrawerItem(index = 8) {
-                DrawerItem(
-                    icon = Icons.Default.Settings,
-                    label = stringResource(R.string.tab_settings),
-                    selected = false,
-                    onClick = onOpenSettings,
                 )
             }
 
@@ -7061,9 +7063,12 @@ private fun ChatTab(
     readOnlyBlocked: Boolean = false,
     onContinueHere: () -> Unit = {},
     changes: List<ChangeItem> = emptyList(),
-    thinkingEnabled: Boolean = false,
-    thinkingSupported: Boolean = false,
-    onToggleThinking: () -> Unit = {},
+    modelLabel: String = "Auto",
+    availableModels: List<String> = emptyList(),
+    selectedModel: String? = null,
+    onSelectModel: (String?) -> Unit = {},
+    needsApiKey: Boolean = false,
+    onAddApiKey: () -> Unit = {},
 ) {
     val view = LocalView.current
     // Keep the screen on while the selected agent is working in this chat. Released automatically
@@ -7227,37 +7232,48 @@ private fun ChatTab(
                     }
                 }
 
-                val canSend = prompt.isNotBlank() || pendingAttachments.isNotEmpty()
+                if (needsApiKey) {
+                    ApiKeyPromptCard(onAddApiKey = onAddApiKey)
+                    Spacer(Modifier.height(8.dp))
+                }
 
-                // DeepSeek-style composer: one large rounded container, chips bottom-left,
-                // attach + send bottom-right.
+                val canSend = prompt.isNotBlank() || pendingAttachments.isNotEmpty()
+                var showModelSheet by remember { mutableStateOf(false) }
+                val composerBackground = if (MaterialTheme.colorScheme.background.luminance() > 0.5f) {
+                    Color(0xFFF2F2F2)
+                } else {
+                    Color(0xFF1C1C1C)
+                }
+
+                // Composer: one large rounded surface. Row 1 is the field, row 2 is
+                // attach (left) and model selector / mic / send (right).
                 Surface(
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    shape = RoundedCornerShape(Dimens.fieldCorner),
+                    color = composerBackground,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Column(Modifier.fillMaxWidth().padding(6.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
                         BasicTextField(
                             value = prompt,
                             onValueChange = { prompt = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 8.dp)
-                                .heightIn(min = 24.dp, max = 140.dp),
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .heightIn(min = 24.dp, max = 132.dp),
                             textStyle = TextStyle(
                                 color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 lineHeight = 22.sp,
                             ),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                             decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.CenterStart) {
+                                Box(contentAlignment = Alignment.TopStart) {
                                     if (prompt.isEmpty()) {
                                         Text(
                                             text = stringResource(R.string.chat_input_placeholder),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 16.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                            fontSize = 15.sp,
                                         )
                                     }
                                     innerTextField()
@@ -7266,42 +7282,21 @@ private fun ChatTab(
                         )
 
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 4.dp, end = 2.dp, bottom = 2.dp),
+                            Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (thinkingSupported) {
-                                ComposerChip(
-                                    label = stringResource(R.string.ws_chip_think),
-                                    icon = Icons.Default.AutoAwesome,
-                                    selected = thinkingEnabled,
-                                    enabled = !isRunning,
-                                    onClick = onToggleThinking,
-                                )
-                            }
-                            Spacer(Modifier.weight(1f))
-
                             var attachMenuOpen by remember { mutableStateOf(false) }
-                            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                                Surface(
+                            Box(Modifier.size(Dimens.touchTarget), contentAlignment = Alignment.Center) {
+                                IconButton(
                                     onClick = { attachMenuOpen = true },
                                     enabled = pendingAttachments.size < 5,
-                                    shape = CircleShape,
-                                    color = Color.Transparent,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                    modifier = Modifier.size(40.dp),
                                 ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = stringResource(R.string.chat_attach_files),
-                                            modifier = Modifier.size(20.dp),
-                                            tint = if (pendingAttachments.isNotEmpty()) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurface
-                                            },
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = stringResource(R.string.chat_attach_files),
+                                        modifier = Modifier.size(Dimens.icon),
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                    )
                                 }
                                 DropdownMenu(expanded = attachMenuOpen, onDismissRequest = { attachMenuOpen = false }) {
                                     DropdownMenuItem(
@@ -7317,108 +7312,349 @@ private fun ChatTab(
                                 }
                             }
 
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.weight(1f))
 
-                            if (isRunning) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.error)
-                                        .clickable(onClick = onStop),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Stop,
-                                        contentDescription = stringResource(R.string.ws_stop_ai_task),
-                                        tint = MaterialTheme.colorScheme.onError,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                                if (canSend) Spacer(Modifier.width(8.dp))
+                            ModelSelectorButton(
+                                label = modelLabel,
+                                enabled = !isRunning,
+                                onClick = { showModelSheet = true },
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            MicButton(enabled = !isRunning) { spoken ->
+                                prompt = if (prompt.isBlank()) spoken else prompt.trimEnd() + " " + spoken
                             }
-                            if (!isRunning || canSend) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clickable(enabled = canSend) {
-                                            if (canSend) {
-                                                onSend(prompt)
-                                                prompt = ""
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (canSend) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.surfaceVariant
-                                                },
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.ArrowUpward,
-                                            contentDescription = stringResource(R.string.chat_send),
-                                            tint = if (canSend) {
-                                                MaterialTheme.colorScheme.onPrimary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                            },
-                                            modifier = Modifier.size(19.dp),
-                                        )
+                            Spacer(Modifier.width(4.dp))
+                            ComposerActionButton(
+                                isRunning = isRunning,
+                                canSend = canSend,
+                                onSend = {
+                                    if (canSend) {
+                                        onSend(prompt)
+                                        prompt = ""
                                     }
-                                }
-                            }
+                                },
+                                onStop = onStop,
+                            )
                         }
                     }
+                }
+
+                if (showModelSheet) {
+                    ModelPickerSheet(
+                        models = availableModels,
+                        selected = selectedModel,
+                        onDismiss = { showModelSheet = false },
+                        onSelect = { model ->
+                            showModelSheet = false
+                            onSelectModel(model)
+                        },
+                    )
                 }
             }
         }
     }
 }
 
-/** Rounded toggle chip used by the composer (e.g. agent reasoning effort). */
+/** Inline replacement for the red "no API key" failure: actionable, right in the chat. */
 @Composable
-private fun ComposerChip(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val accent = MaterialTheme.colorScheme.primary
+private fun ApiKeyPromptCard(onAddApiKey: () -> Unit) {
     Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = RoundedCornerShape(18.dp),
-        color = if (selected) accent.copy(alpha = 0.16f) else Color.Transparent,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) accent.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
-        ),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                icon,
+                Icons.Default.Key,
                 contentDescription = null,
-                modifier = Modifier.size(15.dp),
-                tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(Dimens.iconSmall),
+                tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.api_key_prompt_title),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(R.string.api_key_prompt_body),
+                    fontSize = 12.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onAddApiKey) {
+                Text(stringResource(R.string.api_key_prompt_action), fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelSelectorButton(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 92.dp),
+        )
+        Icon(
+            Icons.Default.KeyboardArrowDown,
+            contentDescription = stringResource(R.string.chat_model_title),
+            modifier = Modifier.size(Dimens.iconTiny),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Send / stop control: white circle, black arrow or black square, crossfaded. */
+@Composable
+private fun ComposerActionButton(
+    isRunning: Boolean,
+    canSend: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Crossfade(targetState = isRunning, label = "composer_action") { running ->
+        val active = running || canSend
+        Box(
+            Modifier
+                .size(Dimens.touchTarget)
+                .clickable(enabled = active) { if (running) onStop() else onSend() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (active) Color.White else Color.White.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (running) {
+                    Box(
+                        Modifier
+                            .size(12.dp)
+                            .background(Color.Black, RoundedCornerShape(2.dp)),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = stringResource(R.string.chat_send),
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.Black.copy(alpha = if (canSend) 1f else 0.35f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Speech-to-text on top of the platform recogniser. Nothing leaves the device except the
+ * recognition request handled by the system service.
+ */
+@Composable
+private fun MicButton(
+    enabled: Boolean,
+    onText: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var listening by remember { mutableStateOf(false) }
+    var recognizer by remember { mutableStateOf<android.speech.SpeechRecognizer?>(null) }
+
+    fun beginListening() {
+        val speech = recognizer ?: runCatching {
+            android.speech.SpeechRecognizer.createSpeechRecognizer(context)
+        }.getOrNull()?.also { recognizer = it } ?: run {
+            Toast.makeText(context, context.getString(R.string.chat_voice_unavailable), Toast.LENGTH_SHORT).show()
+            return
+        }
+        speech.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: android.os.Bundle?) {
+                listening = true
+            }
+
+            override fun onBeginningOfSpeech() = Unit
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+            override fun onEndOfSpeech() {
+                listening = false
+            }
+
+            override fun onError(error: Int) {
+                listening = false
+            }
+
+            override fun onResults(results: android.os.Bundle?) {
+                listening = false
+                val spoken = results
+                    ?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                if (!spoken.isNullOrBlank()) onText(spoken)
+            }
+
+            override fun onPartialResults(partialResults: android.os.Bundle?) = Unit
+            override fun onEvent(eventType: Int, params: android.os.Bundle?) = Unit
+        })
+        val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+        }
+        runCatching { speech.startListening(intent) }.onFailure { listening = false }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) beginListening() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { recognizer?.destroy() }
+            recognizer = null
+        }
+    }
+
+    val transition = rememberInfiniteTransition(label = "mic_pulse")
+    val pulse by transition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(animation = tween(600), repeatMode = RepeatMode.Reverse),
+        label = "mic_pulse_scale",
+    )
+
+    Box(
+        Modifier
+            .size(Dimens.touchTarget)
+            .graphicsLayer {
+                if (listening) {
+                    scaleX = pulse
+                    scaleY = pulse
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        IconButton(
+            enabled = enabled,
+            onClick = {
+                if (listening) {
+                    runCatching { recognizer?.stopListening() }
+                    listening = false
+                } else {
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.RECORD_AUDIO,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        beginListening()
+                    } else {
+                        permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = stringResource(R.string.chat_voice_input),
+                modifier = Modifier.size(Dimens.icon),
+                tint = if (listening) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPickerSheet(
+    models: List<String>,
+    selected: String?,
+    onDismiss: () -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 20.dp)) {
+            Text(
+                text = stringResource(R.string.chat_model_title),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            ModelPickerRow(
+                label = stringResource(R.string.chat_model_auto),
+                detail = null,
+                selected = selected == null,
+                onClick = { onSelect(null) },
+            )
+            models.forEach { model ->
+                ModelPickerRow(
+                    label = model,
+                    detail = null,
+                    selected = model == selected,
+                    onClick = { onSelect(model) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelPickerRow(
+    label: String,
+    detail: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
             Text(
                 text = label,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (detail != null) {
+                Text(text = detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (selected) {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = null,
+                modifier = Modifier.size(Dimens.iconSmall),
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }

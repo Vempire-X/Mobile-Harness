@@ -2529,6 +2529,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Checks once, then updates every agent that has a newer version, one at a time.
+     * Reuses the existing per-agent update path (no new download logic).
+     */
+    fun updateAllPackages() {
+        if (_state.value.agentUpdating != null || _state.value.agentInstalling != null || _state.value.isRunning) return
+        viewModelScope.launch {
+            checkAgentUpdates()
+            var waited = 0
+            while (_state.value.agentUpdatesChecking && waited < 20) {
+                delay(500)
+                waited++
+            }
+            val targets = _state.value.agentUpdates.keys.toList()
+            targets.forEach { kind ->
+                updateAgent(kind)
+                var guard = 0
+                while (_state.value.agentUpdating == kind && guard < 240) {
+                    delay(1_000)
+                    guard++
+                }
+            }
+        }
+    }
+
     fun updateAgent(kind: AgentKind) {
         val update = _state.value.agentUpdates[kind] ?: return
         if (_state.value.agentUpdating != null || _state.value.agentInstalling != null || _state.value.isRunning) return
